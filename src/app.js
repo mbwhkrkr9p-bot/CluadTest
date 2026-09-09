@@ -89,6 +89,8 @@
   // ------------------------------------------------------------------ state
   const state = {
     selected: 'trainer', design: Object.assign({}, O.GLIDER_PRESETS.trainer),
+    model: { size: 20, mass: 20, ballast: 0, airfoil: 0, res: 0, zUp: false, name: 'Model', color: 0xB7C4D6, launch: null, turbulence: 0 },
+    modelBase: null, wire: true,
     height: 6, speed: null, angle: 0, wind: 0, gust: 0.3, turb: 0.2,
     paused: false, slow: false, forces: false, tufts: true, follow: true,
   };
@@ -106,12 +108,19 @@
   // ------------------------------------------------------------------ specs
   function currentSpec() {
     if (O.CATALOG[state.selected]) return O.CATALOG[state.selected].make();
+    if (isMesh()) {
+      const m = state.model;
+      return O.meshSpec(state.modelBase, { size: m.size, mass: m.mass, ballast: m.ballast, airfoil: m.airfoil, res: m.res, zUp: m.zUp,
+        name: m.name, color: m.color, launch: m.launch || { speed: 0, pitch: state.angle, roll: 0, spin: 0.3 }, turbulence: m.turbulence });
+    }
     const preset = O.GLIDER_PRESETS[state.selected];
     const spec = O.gliderSpec(state.design, preset ? preset.label : 'Custom glider');
     spec.visual = { color: preset && preset.color || 0xE9D9B4 };
     return spec;
   }
-  function isGlider() { return !O.CATALOG[state.selected]; }
+  function isMesh() { return state.selected === 'upload' || !!O.MESH_CATALOG[state.selected]; }
+  function isGlider() { return !O.CATALOG[state.selected] && !isMesh(); }
+  function canFly() { return isGlider() || isMesh(); }
 
   // ------------------------------------------------------------------ meshes
   const vec = (a) => new THREE.Vector3(a[0], a[1], a[2]);
@@ -120,7 +129,16 @@
     const vis = body.spec.visual || {};
     const baseColor = vis.color != null ? vis.color : 0xE9D9B4;
     const mat = (color, extra) => new THREE.MeshStandardMaterial(Object.assign({ color, side: THREE.DoubleSide, roughness: 0.75, metalness: 0.02 }, extra || {}));
-    if (vis.box) {
+    if (vis.mesh) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(body.mesh.verts), 3));
+      geo.setIndex(new THREE.BufferAttribute(Uint32Array.from(body.spec.mesh.indices), 1));
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat(baseColor, { flatShading: true }));
+      m.castShadow = true; g.add(m);
+      const wire = new THREE.LineSegments(new THREE.WireframeGeometry(geo), new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
+      wire.material.color.set(T.text); wire.visible = state.wire; wire.name = 'wire'; g.add(wire);
+    } else if (vis.box) {
       const m = new THREE.Mesh(new THREE.BoxGeometry(vis.box[0], vis.box[1], vis.box[2]), mat(baseColor, { side: THREE.FrontSide }));
       m.position.copy(vec(A.scale(body.com, -1))); m.castShadow = true; g.add(m);
     } else {
@@ -172,7 +190,7 @@
   }
 
   function makeTufts(body) {
-    const n = body.subs.length;
+    const n = body.elemCount;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 6), 3));
     geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 6), 3));
@@ -193,19 +211,20 @@
   function restage() {
     if (staged) { scene.remove(staged.mesh); disposeGroup(staged.mesh); }
     const spec = currentSpec();
-    const body = A.buildBody(spec);
+    const body = spec.kind === 'mesh' ? A.buildMeshBody(spec) : A.buildBody(spec);
     const mesh = makeMesh(body);
     scene.add(mesh);
     staged = { body, mesh, spec };
     placeStaged();
     refreshDesignStats();
+    refreshModelStats();
     pole.geometry.setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, state.height, 0)]);
     pole.computeLineDistances();
     updateBlurb();
   }
   function launchQuat(spec) {
     const L = spec.launch;
-    const pitch = isGlider() ? state.angle : L.pitch;
+    const pitch = canFly() && (staged && staged.trim && staged.trim.alpha != null) ? state.angle : L.pitch;
     return A.qEuler(L.roll, pitch, 0);
   }
   function placeStaged() {
@@ -223,13 +242,14 @@
     const q = launchQuat(spec);
     body.pos = [0, state.height, 0];
     body.q = q;
-    const speed = isGlider() ? (state.speed == null ? (staged.trim && staged.trim.V) || spec.launch.speed : state.speed) : spec.launch.speed;
+    const trimV = staged.trim && staged.trim.V;
+    const speed = canFly() ? (state.speed == null ? (trimV || spec.launch.speed) : state.speed) : spec.launch.speed;
     body.vel = A.qRot(q, [speed, 0, 0]);
     const s = spec.launch.spin || 0;
     body.omega = [s * (Math.random() - 0.5) * 2, s * (Math.random() - 0.5) * 2, s * (Math.random() - 0.5) * 2];
     body.t = 0; body.landed = false; body.launchedAt = simTime;
     body.noise = [A.makeNoise(Math.random() * 1e6 | 0), A.makeNoise(Math.random() * 1e6 | 0), A.makeNoise(Math.random() * 1e6 | 0)];
-    body.out = { tufts: new Float32Array(body.subs.length * 6), stall: new Float32Array(body.subs.length) };
+    body.out = { tufts: new Float32Array(body.elemCount * 6), stall: new Float32Array(body.elemCount) };
     const color = TRAIL_COLORS[colorIx++ % TRAIL_COLORS.length];
     const live = {
       body, mesh: staged.mesh, tufts: makeTufts(body), trail: makeTrail(color), color, name: spec.name, maxV: 0, launchHeight: state.height,
@@ -330,18 +350,55 @@
     };
     for (const [k, o] of Object.entries(O.CATALOG)) mk(k, o.label);
     const sep = document.createElement('div'); sep.className = 'sep'; objectsEl.appendChild(sep);
-    for (const [k, p] of Object.entries(O.GLIDER_PRESETS)) mk(k, p.label);
+    for (const [k, p] of Object.entries(O.GLIDER_PRESETS)) if (k !== 'custom') mk(k, p.label);
+    const sep2 = document.createElement('div'); sep2.className = 'sep'; objectsEl.appendChild(sep2);
+    for (const [k, e] of Object.entries(O.MESH_CATALOG)) mk(k, e.label);
+    if (state.modelBase && state.model.name && state.uploadName) mk('upload', state.uploadName);
+    const up = document.createElement('button'); up.className = 'obj upload'; up.textContent = 'Open STL / OBJ…'; up.addEventListener('click', () => fileInput.click()); objectsEl.appendChild(up);
   }
+  const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = '.stl,.obj'; fileInput.hidden = true; document.body.appendChild(fileInput);
+  function useUploadedMesh(mesh, name) {
+    if (!mesh.indices.length) throw new Error('no triangles found');
+    // sensible defaults: 20 cm long; foam-like solid (150 kg/m³) or paper-like shell (250 g/m²)
+    const np = A.meshProps(A.normalizeMesh(mesh, 0.2, false));
+    const massG = np.closed ? np.volume * 150 * 1000 : np.area * 0.25 * 1000;
+    Object.assign(state.model, { size: 20, mass: Math.max(0.1, +massG.toPrecision(3)), ballast: 0, airfoil: 0.5, res: 0, zUp: false, name, color: 0xB7C4D6, launch: null, turbulence: 0 });
+    state.modelBase = mesh; state.uploadBase = mesh; state.uploadName = name;
+    buildChips(); select('upload');
+    toast(`${name}: ${np.faces} triangles, ${np.closed ? 'closed solid' : 'open surface'}`);
+  }
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files && fileInput.files[0]; if (!f) return;
+    try {
+      const buf = await f.arrayBuffer();
+      const mesh = /\.obj$/i.test(f.name) ? O.parseOBJ(new TextDecoder().decode(buf)) : O.parseSTL(buf);
+      useUploadedMesh(mesh, f.name.replace(/\.(stl|obj)$/i, ''));
+    } catch (e) { toast('Could not read that file: ' + e.message); }
+    fileInput.value = '';
+  });
   function select(key) {
-    state.selected = key;
-    if (O.GLIDER_PRESETS[key]) { state.design = Object.assign({}, O.GLIDER_PRESETS[key]); state.speed = null; syncDesignSliders(); }
+    state.selected = key; state.speed = null;
+    if (O.GLIDER_PRESETS[key]) { state.design = Object.assign({}, O.GLIDER_PRESETS[key]); syncDesignSliders(); }
+    if (O.MESH_CATALOG[key]) {
+      const e = O.MESH_CATALOG[key];
+      state.modelBase = e.base();
+      Object.assign(state.model, { size: e.size, mass: e.mass, ballast: e.ballast || 0, airfoil: e.airfoil, res: e.res, zUp: false, name: e.label, color: e.color, launch: e.launch, turbulence: e.turbulence || 0 });
+    }
+    if (key === 'upload') state.modelBase = state.uploadBase || state.modelBase;
+    if (isMesh()) { state.uploadBase = key === 'upload' ? state.modelBase : state.uploadBase; syncModelSliders(); }
     $('#designPanel').style.display = isGlider() ? '' : 'none';
-    objectsEl.querySelectorAll('.obj').forEach((b) => b.classList.toggle('on', b.textContent === (O.CATALOG[key] || O.GLIDER_PRESETS[key]).label));
+    $('#modelPanel').style.display = isMesh() ? '' : 'none';
+    const label = sourceInfo().label;
+    objectsEl.querySelectorAll('.obj').forEach((b) => b.classList.toggle('on', b.textContent === label));
     restage(); cam.dist = viewDist();
-    if (!isGlider() && state.height < 3) { state.height = 6; syncAir(); restage(); }
+    if (!canFly() && state.height < 3) { state.height = 6; syncAir(); restage(); }
+  }
+  function sourceInfo() {
+    if (state.selected === 'upload') return { label: state.uploadName || 'Your model', blurb: 'Your own model. Set its real size and mass; add nose ballast if it is meant to fly.' };
+    return O.CATALOG[state.selected] || O.GLIDER_PRESETS[state.selected] || O.MESH_CATALOG[state.selected];
   }
   function updateBlurb() {
-    const src = O.CATALOG[state.selected] || O.GLIDER_PRESETS[state.selected];
+    const src = sourceInfo();
     const b = staged && staged.body;
     let s = `<b>${src.label}.</b> ${src.blurb}`;
     if (b) s += ` Mass ${(b.mass * 1000).toFixed(b.mass < 0.001 ? 2 : 1)} g.`;
@@ -392,11 +449,64 @@
     syncAir();
   }
 
+  // ------------------------------------------------------------------ model (mesh) panel
+  const modelEl = $('#model');
+  const MODEL = [
+    { key: 'size', label: 'Size (longest side)', unit: 'cm', min: 2, max: 200, step: 0.5 },
+    { key: 'mass', label: 'Mass', unit: 'g', min: -1, max: 3.7, step: 0.02, log: true },
+    { key: 'ballast', label: 'Nose ballast', unit: 'g', min: 0, max: 60, step: 0.5 },
+    { key: 'airfoil', label: 'Surface (flat plate → airfoil)', unit: '', min: 0, max: 1, step: 0.05 },
+    { key: 'res', label: 'Mesh resolution (subdivisions)', unit: '', min: 0, max: 3, step: 1 },
+  ];
+  let modelTimer = 0;
+  function buildModel() {
+    const row = document.createElement('div'); row.className = 'design-presets';
+    row.innerHTML = '<button id="zup">File is Z-up</button><button id="wire" class="on">Wireframe</button>';
+    modelEl.appendChild(row);
+    row.querySelector('#zup').addEventListener('click', (e) => { state.model.zUp = !state.model.zUp; e.target.classList.toggle('on', state.model.zUp); restage(); });
+    row.querySelector('#wire').addEventListener('click', (e) => { state.wire = !state.wire; e.target.classList.toggle('on', state.wire); scene.traverse((o) => { if (o.name === 'wire') o.visible = state.wire; }); });
+    for (const P of MODEL) {
+      const w = document.createElement('div'); w.className = 'sl';
+      w.innerHTML = `<label for="m_${P.key}">${P.label}</label><output id="mo_${P.key}"></output><input type="range" id="m_${P.key}" min="${P.min}" max="${P.max}" step="${P.step}">`;
+      modelEl.appendChild(w);
+      const inp = w.querySelector('input');
+      inp.addEventListener('input', () => {
+        const v = parseFloat(inp.value);
+        state.model[P.key] = P.log ? +Math.pow(10, v).toPrecision(3) : v;
+        w.querySelector('output').textContent = fmtModel(P, state.model[P.key]);
+        clearTimeout(modelTimer); modelTimer = setTimeout(restage, P.key === 'res' ? 0 : 120);
+      });
+    }
+    const stats = document.createElement('p'); stats.className = 'foot'; stats.id = 'modelInfo'; modelEl.appendChild(stats);
+  }
+  const fmtModel = (P, v) => P.key === 'res' ? `${v} (${v === 0 ? 'as built' : '×' + Math.pow(4, v) + ' faces'})` : `${(+v).toFixed(v < 10 ? 1 : 0)} ${P.unit}`.trim();
+  function syncModelSliders() {
+    for (const P of MODEL) {
+      const inp = document.getElementById('m_' + P.key); if (!inp) continue;
+      const v = state.model[P.key];
+      inp.value = P.log ? Math.log10(Math.max(0.1, v)) : v;
+      document.getElementById('mo_' + P.key).textContent = fmtModel(P, v);
+    }
+    const z = $('#zup'); if (z) z.classList.toggle('on', state.model.zUp);
+  }
+  function refreshModelStats() {
+    if (!isMesh() || !staged) { $('#modelStats').textContent = ''; return; }
+    const b = staged.body, M = b.mesh, pr = M.props;
+    const tr = A.trimAnalysis(b); staged.trim = tr;
+    const el = $('#modelStats');
+    el.textContent = `${M.n} faces · ${M.closed ? 'solid' : 'shell'} · ` + (tr.alpha == null ? (tr.dive ? 'dives' : 'no glide') : `glides ${tr.glide.toFixed(1)} : 1 at ${tr.V.toFixed(1)} m/s`);
+    el.className = 'stat ' + (tr.alpha == null ? '' : 'good');
+    const info = $('#modelInfo');
+    if (info) info.textContent = `${M.n} triangles in ${M.clusters.length} flat regions · ${M.closed ? 'closed solid' : 'open surface, both sides in the air'} · volume ${(pr.volume * 1e6).toFixed(pr.volume * 1e6 < 10 ? 2 : 0)} cm³ · surface ${(pr.area * 1e4).toFixed(0)} cm² · ${(b.mass * 1000).toFixed(1)} g` +
+      (tr.alpha == null ? ' · no stable lifting trim: it will not glide as is (try nose ballast, or none).' : ` · trims at ${tr.alpha.toFixed(1)}° angle of attack, ${tr.V.toFixed(1)} m/s, lift/drag ${tr.glide.toFixed(1)}.`);
+    syncAir();
+  }
+
   // ------------------------------------------------------------------ air & launch sliders
   const airEl = $('#air');
   const AIR = [
     { key: 'height', label: 'Drop height', unit: 'm', min: 1, max: 40, step: 0.5 },
-    { key: 'speed', label: 'Launch speed (gliders)', unit: 'm/s', min: 0, max: 14, step: 0.5, auto: true },
+    { key: 'speed', label: 'Launch speed (if it can fly)', unit: 'm/s', min: 0, max: 14, step: 0.5, auto: true },
     { key: 'angle', label: 'Launch angle', unit: '°', min: -30, max: 40, step: 1 },
     { key: 'wind', label: 'Wind (+ = headwind)', unit: 'm/s', min: -6, max: 6, step: 0.5 },
     { key: 'gust', label: 'Gustiness', unit: '', min: 0, max: 1, step: 0.1 },
@@ -422,7 +532,7 @@
     for (const P of AIR) {
       const inp = document.getElementById('a_' + P.key); if (!inp) continue;
       let v = state[P.key];
-      if (P.key === 'speed' && v == null) { v = staged && staged.trim && staged.trim.V ? staged.trim.V : 0; inp.value = v; document.getElementById('ao_' + P.key).textContent = isGlider() ? v.toFixed(1) + ' m/s (trim)' : '–'; continue; }
+      if (P.key === 'speed' && v == null) { v = staged && staged.trim && staged.trim.V ? staged.trim.V : 0; inp.value = v; document.getElementById('ao_' + P.key).textContent = canFly() && v > 0 ? v.toFixed(1) + ' m/s (trim)' : (canFly() ? '0 (no trim)' : '–'); continue; }
       inp.value = v; document.getElementById('ao_' + P.key).textContent = `${(+v).toFixed(P.step < 1 ? 1 : 0)} ${P.unit}`.trim();
     }
     const w = state.wind;
@@ -481,7 +591,7 @@
         const tp = live.tufts.geometry.attributes.position, tc = live.tufts.geometry.attributes.color;
         const src = b.out.tufts, st = b.out.stall;
         const g = new THREE.Color(T.good), r = new THREE.Color(T.bad), c = new THREE.Color();
-        for (let i = 0; i < b.subs.length; i++) {
+        for (let i = 0; i < b.elemCount; i++) {
           tp.setXYZ(i * 2, src[i * 6] + b.pos[0], src[i * 6 + 1] + b.pos[1], src[i * 6 + 2] + b.pos[2]);
           tp.setXYZ(i * 2 + 1, src[i * 6 + 3] + b.pos[0], src[i * 6 + 4] + b.pos[1], src[i * 6 + 5] + b.pos[2]);
           c.copy(g).lerp(r, st[i]);
@@ -523,9 +633,9 @@
   }
 
   // ------------------------------------------------------------------ boot
-  buildChips(); buildDesign(); buildAir(); renderLog();
+  buildChips(); buildDesign(); buildModel(); buildAir(); renderLog();
   select('trainer');
-  $('#designPanel').open = window.innerWidth >= 900;
+  $('#designPanel').open = $('#modelPanel').open = window.innerWidth >= 900;
   requestAnimationFrame(frame);
-  window.airfall = { state, cam, drop, select, clearAll, bodies, staged: () => staged };
+  window.airfall = { state, cam, drop, select, clearAll, bodies, staged: () => staged, loadMesh: useUploadedMesh };
 })();

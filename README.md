@@ -31,6 +31,29 @@ Per sub-panel (`src/aero.js`):
 Integration is semi-implicit Euler with automatic sub-stepping from a stiffness estimate, Euler's
 equations in the body frame, and ground contact at the lowest extremity.
 
+## Any 3D model as a single mesh
+
+Press **Open STL / OBJ…** (binary or ASCII STL, OBJ with polygon faces). The model is treated as one
+triangle mesh (`buildMeshBody` in `src/aero.js`):
+
+- Every triangle is an aerodynamic element with its own local wind. Connected, near-coplanar triangles
+  are grouped into flat regions; each region acts as one plate for the chordwise pressure weighting,
+  the aspect ratio and the wake torque, so a wing cut out of a solid still gets a wing's centre of
+  pressure and lift slope.
+- A closed solid's two skins share one plate's force (each skin carries half; the lee skin's separated
+  contribution is weaker, like base pressure). An open surface works on both sides.
+- Blunt faces with a long body behind them (a slab's leading edge, a fuselage nose) get their separated
+  drag reduced by a reattachment factor that grows with afterbody length over face height.
+- Mass is spread by volume through a closed solid or by area over a shell; the inertia tensor is
+  integrated exactly over the tetrahedra of the mesh. Nose ballast is a point mass at the front-most
+  vertex, which is how you move the centre of gravity of a uniform-density model until it trims.
+- **Mesh resolution** subdivides every triangle into four (up to 12 000 faces): a finer mesh samples
+  the local wind and the body's spin more finely, so accuracy improves with resolution.
+
+Sample meshes exercise the same path: the playing card as a 0.3 mm slab, a cube, an icosphere, a folded
+paper dart as an open surface, and the trainer glider built as one solid. `node test/mesh.js` drops each
+at three resolutions; `node test/mcard.js` compares the mesh card with the panel card at three densities.
+
 ## Gliders
 
 `src/objects.js` holds a parametric glider (span, chord, taper, sweep, dihedral, incidence, wing position,
@@ -43,7 +66,7 @@ trainer glider, paper dart, flying wing (reflexed), the same wing untrimmed, and
 ## Files
 
 - `src/aero.js` – aerodynamics and rigid-body core, no dependencies, runs in node.
-- `src/objects.js` – object catalogue and glider designer.
+- `src/objects.js` – object catalogue, glider designer, mesh builders, STL/OBJ parsers.
 - `src/app.js`, `src/page.html` – three.js scene, controls, HUD.
 - `build.mjs` – inlines everything into `dist/index.html` (artifact fragment) and `index.html` (full page).
 - `test/*.js` – headless checks: `node test/run.js` drops every object and prints what it did;

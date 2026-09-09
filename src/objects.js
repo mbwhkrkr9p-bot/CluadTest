@@ -188,3 +188,212 @@
 
   return { CATALOG, GLIDER_PARAMS, GLIDER_PRESETS, gliderSpec };
 });
+
+/* ======================================================================
+ * Mesh objects: procedural samples, file parsers, and the mesh glider.
+ * ==================================================================== */
+(function (root) {
+  const isNode = typeof module === 'object' && module.exports;
+  const A = isNode ? require('./aero.js') : root.AERO;
+  const O = isNode ? module.exports : root.OBJECTS;
+  const DEG = Math.PI / 180;
+
+  // ---- builders (positions flat xyz in metres, indices CCW outward)
+  function merge(list) {
+    const pos = [], idx = [];
+    for (const m of list) { const off = pos.length / 3; for (const v of m.positions) pos.push(v); for (const i of m.indices) idx.push(i + off); }
+    return { positions: Float64Array.from(pos), indices: Uint32Array.from(idx) };
+  }
+  function transform(mesh, fn) {
+    const P = new Float64Array(mesh.positions.length);
+    for (let i = 0; i < P.length; i += 3) { const r = fn([mesh.positions[i], mesh.positions[i + 1], mesh.positions[i + 2]]); P[i] = r[0]; P[i + 1] = r[1]; P[i + 2] = r[2]; }
+    return { positions: P, indices: mesh.indices };
+  }
+  /** Closed box sx×sy×sz centred at c, with nx×ny×nz facets per face pair (resolution). */
+  function boxMesh(sx, sy, sz, c = [0, 0, 0], seg = 1) {
+    const pos = [], idx = [];
+    const h = [sx / 2, sy / 2, sz / 2];
+    const face = (axis, sign) => {
+      const u = (axis + 1) % 3, v = (axis + 2) % 3;
+      const base = pos.length / 3;
+      for (let i = 0; i <= seg; i++) for (let j = 0; j <= seg; j++) {
+        const p = [0, 0, 0]; p[axis] = sign * h[axis]; p[u] = -h[u] + (2 * h[u] * i) / seg; p[v] = -h[v] + (2 * h[v] * j) / seg;
+        pos.push(p[0] + c[0], p[1] + c[1], p[2] + c[2]);
+      }
+      for (let i = 0; i < seg; i++) for (let j = 0; j < seg; j++) {
+        const a = base + i * (seg + 1) + j, b = a + seg + 1, cc = a + 1, d = b + 1;
+        if (sign > 0) idx.push(a, b, d, a, d, cc); else idx.push(a, d, b, a, cc, d);
+      }
+    };
+    for (let axis = 0; axis < 3; axis++) { face(axis, 1); face(axis, -1); }
+    return A.weld({ positions: Float64Array.from(pos), indices: Uint32Array.from(idx) }, 1e-7);
+  }
+  function icosphere(r, n = 2, c = [0, 0, 0]) {
+    const t = (1 + Math.sqrt(5)) / 2;
+    let pos = [-1, t, 0, 1, t, 0, -1, -t, 0, 1, -t, 0, 0, -1, t, 0, 1, t, 0, -1, -t, 0, 1, -t, t, 0, -1, t, 0, 1, -t, 0, -1, -t, 0, 1];
+    let idx = [0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8, 3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9, 4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1];
+    let m = A.subdivide({ positions: Float64Array.from(pos), indices: Uint32Array.from(idx) }, n);
+    return transform(m, (p) => { const l = Math.hypot(p[0], p[1], p[2]); return [c[0] + r * p[0] / l, c[1] + r * p[1] / l, c[2] + r * p[2] / l]; });
+  }
+  const rotY = (deg) => (p) => { const c = Math.cos(deg * DEG), s = Math.sin(deg * DEG); return [c * p[0] + s * p[2], p[1], -s * p[0] + c * p[2]]; };
+  const rotZ = (deg) => (p) => { const c = Math.cos(deg * DEG), s = Math.sin(deg * DEG); return [c * p[0] - s * p[1], s * p[0] + c * p[1], p[2]]; };
+  const rotX = (deg) => (p) => { const c = Math.cos(deg * DEG), s = Math.sin(deg * DEG); return [p[0], c * p[1] - s * p[2], s * p[1] + c * p[2]]; };
+  const move = (d) => (p) => [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
+  const chain = (...fns) => (p) => fns.reduce((q, f) => f(q), p);
+
+  /** Thin closed wing slab with taper, sweep, dihedral, incidence — from the glider parameters. */
+  function wingSlab(p, thickness, seg) {
+    const span = p.span * 0.01, chord = p.chord * 0.01;
+    const rootC = chord * 2 / (1 + p.taper), tipC = chord * 2 * p.taper / (1 + p.taper);
+    const halves = [];
+    for (const side of [1, -1]) {
+      const strips = seg;
+      const pos = [], idx = [];
+      // build a lofted slab: sections along span, each a rectangle (4 verts) → closed by quads
+      const sections = [];
+      for (let i = 0; i <= strips; i++) {
+        const f = i / strips, y = f * span / 2, c = rootC + (tipC - rootC) * f;
+        const xqc = -y * Math.tan(p.sweep * DEG);
+        sections.push({ x0: xqc + c / 4, x1: xqc - 3 * c / 4, z: side * y, yUp: y * Math.tan(p.dihedral * DEG) });
+      }
+      for (const s of sections) {
+        pos.push(s.x0, s.yUp + thickness / 2, s.z, s.x1, s.yUp + thickness / 2, s.z, s.x1, s.yUp - thickness / 2, s.z, s.x0, s.yUp - thickness / 2, s.z);
+      }
+      const q = (a, b, c, d) => { if (side > 0) idx.push(a, b, c, a, c, d); else idx.push(a, c, b, a, d, c); };
+      for (let i = 0; i < strips; i++) {
+        const a = i * 4, b = (i + 1) * 4;
+        q(a, a + 1, b + 1, b);          // top
+        q(a + 2, a + 3, b + 3, b + 2);  // bottom
+        q(a + 1, a + 2, b + 2, b + 1);  // trailing edge
+        q(a + 3, a, b, b + 3);          // leading edge
+      }
+      // caps
+      q(0, 3, 2, 1);
+      const e = strips * 4; q(e, e + 1, e + 2, e + 3);
+      halves.push({ positions: Float64Array.from(pos), indices: Uint32Array.from(idx) });
+    }
+    let m = A.weld(merge(halves), 1e-7);      // join the halves at the root
+    m = transform(m, rotZ(p.incidence));
+    return m;
+  }
+  /** Whole glider as one mesh (wing slab, tail slab, fin, fuselage box, nose block). */
+  function gliderMesh(p, seg = 4) {
+    const span = p.span * 0.01, chord = p.chord * 0.01;
+    const parts = [];
+    const wingX = p.wingX * 0.01;
+    parts.push(transform(wingSlab(p, 0.004, seg), move([wingX, 0.012, 0])));
+    const wingArea = span * chord;
+    const tailX = -p.tailArm * 0.01;
+    if (p.tailArea > 0) {
+      const tA = wingArea * p.tailArea * 0.01, tChord = Math.min(chord * 0.75, Math.sqrt(tA / 3)), tSpan = tA / tChord;
+      parts.push(transform(wingSlab({ span: tSpan * 100, chord: tChord * 100, taper: 1, sweep: 0, dihedral: 0, incidence: p.tailInc }, 0.003, Math.max(2, seg >> 1)), move([tailX, 0, 0])));
+    }
+    if (p.finArea > 0) {
+      const fA = wingArea * p.finArea * 0.01, fChord = Math.sqrt(fA / 1.2), fH = fA / fChord;
+      const finX = p.tailArea > 0 ? tailX : wingX - chord * 0.3;
+      const up = p.tailArea > 0 ? 1 : -1;
+      parts.push(boxMesh(fChord, fH, 0.003, [finX, up * fH / 2, 0], Math.max(1, seg >> 1)));
+    }
+    const noseX = wingX + chord * 0.6 + 0.04, rodTo = p.tailArea > 0 ? tailX - 0.01 : wingX - chord * 0.6;
+    const dia = p.tailArea > 0 ? 0.012 : 0.006;
+    parts.push(boxMesh(noseX - rodTo, dia, dia, [(noseX + rodTo) / 2, 0, 0], Math.max(2, seg)));
+    return merge(parts);   // parts stay separate solids; each is closed on its own
+  }
+  /** Folded paper dart as an open surface: two swept wing panels in a V plus a keel. */
+  function dartMesh(seg = 3) {
+    const L = 0.21, halfSpan = 0.09, dihedral = 18 * DEG;
+    const parts = [];
+    for (const side of [1, -1]) {
+      const pos = [], idx = [];
+      // triangle-ish panel: nose at (L/2,0,0), trailing root (-L/2,0,0), tip (-L/2, up, ±halfSpan) — lofted in `seg` strips
+      for (let i = 0; i <= seg; i++) {
+        const f = i / seg, z = side * halfSpan * f, y = halfSpan * f * Math.tan(dihedral);
+        const xle = L / 2 - L * f * 0.95;           // swept leading edge
+        pos.push(xle, y, z, -L / 2, y, z);
+      }
+      for (let i = 0; i < seg; i++) { const a = i * 2, b = a + 2; if (side > 0) idx.push(a, a + 1, b + 1, a, b + 1, b); else idx.push(a, b + 1, a + 1, a, b, b + 1); }
+      parts.push({ positions: Float64Array.from(pos), indices: Uint32Array.from(idx) });
+    }
+    // keel (vertical plate under the centreline)
+    const keelH = 0.02, kp = [L / 2, 0, 0, -L / 2, 0, 0, -L / 2, -keelH, 0, L / 2, -keelH, 0];
+    parts.push({ positions: Float64Array.from(kp), indices: Uint32Array.from([0, 1, 2, 0, 2, 3]) });
+    return A.weld(merge(parts), 1e-7);
+  }
+
+  // ---- file parsers
+  function parseSTL(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const head = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 600)));
+    const dv = new DataView(buffer);
+    const isBinary = bytes.length >= 84 && (dv.getUint32(80, true) * 50 + 84 === bytes.length || !/^\s*solid/i.test(head));
+    const pos = [];
+    if (isBinary) {
+      const n = dv.getUint32(80, true);
+      for (let i = 0; i < n; i++) { const o = 84 + i * 50; for (let v = 0; v < 3; v++) { const b = o + 12 + v * 12; pos.push(dv.getFloat32(b, true), dv.getFloat32(b + 4, true), dv.getFloat32(b + 8, true)); } }
+    } else {
+      const text = new TextDecoder().decode(bytes);
+      const re = /vertex\s+([-+\d.eE]+)\s+([-+\d.eE]+)\s+([-+\d.eE]+)/g; let m;
+      while ((m = re.exec(text))) pos.push(+m[1], +m[2], +m[3]);
+    }
+    const idx = new Uint32Array(pos.length / 3); for (let i = 0; i < idx.length; i++) idx[i] = i;
+    return A.weld({ positions: Float64Array.from(pos), indices: idx }, 1e-6);
+  }
+  function parseOBJ(text) {
+    const pos = [], idx = [];
+    for (const raw of text.split('\n')) {
+      const line = raw.trim(); if (!line || line[0] === '#') continue;
+      const t = line.split(/\s+/);
+      if (t[0] === 'v') pos.push(+t[1], +t[2], +t[3]);
+      else if (t[0] === 'f') {
+        const vs = t.slice(1).map((s) => { let i = parseInt(s.split('/')[0], 10); return i < 0 ? pos.length / 3 + i : i - 1; });
+        for (let i = 1; i + 1 < vs.length; i++) idx.push(vs[0], vs[i], vs[i + 1]);
+      }
+    }
+    return A.weld({ positions: Float64Array.from(pos), indices: Uint32Array.from(idx) }, 1e-6);
+  }
+
+  // ---- sample catalogue (mesh path)
+  const MESH_CATALOG = {
+    mcard: {
+      label: 'Card (mesh)', blurb: 'The playing card again, but as a closed 0.3 mm slab of triangles. Compare it with the panel version.',
+      size: 8.9, mass: 1.8, res: 1, airfoil: 0, base: () => boxMesh(0.089, 0.0003, 0.064, [0, 0, 0], 4),
+      launch: { speed: 0, pitch: 15, roll: 0, spin: 0.3 }, viewDist: 0.9, color: 0xf4f1e6,
+    },
+    mcube: {
+      label: 'Cube (mesh)', blurb: '20 cm closed cube. Six faces of triangles; drag from the windward faces, base suction behind.',
+      size: 20, mass: 150, res: 1, airfoil: 0, base: () => boxMesh(0.2, 0.2, 0.2, [0, 0, 0], 3),
+      launch: { speed: 0, pitch: 12, roll: 20, spin: 0.8 }, viewDist: 1.4, color: 0xc59a5a, turbulence: 0.8,
+    },
+    msphere: {
+      label: 'Sphere (mesh)', blurb: 'An icosphere. Raise the resolution and watch the drag settle toward a steady value.',
+      size: 30, mass: 65, res: 0, airfoil: 0, base: () => icosphere(0.15, 2),
+      launch: { speed: 0, pitch: 0, roll: 0, spin: 1 }, viewDist: 1.6, color: 0xf25c54,
+    },
+    mdart: {
+      label: 'Paper dart (mesh)', blurb: 'A folded dart as an open surface: two swept panels in a V and a keel. 5 g of paper.',
+      size: 21, mass: 4, res: 1, airfoil: 0.3, ballast: 1.5, base: () => dartMesh(3),
+      launch: { speed: 6, pitch: 2, roll: 0, spin: 0 }, viewDist: 1.2, color: 0xf6f6f2, glider: true,
+    },
+    mglider: {
+      label: 'Trainer (mesh)', blurb: 'The trainer glider built as one solid mesh: slab wing and tail, fin, fuselage bar, nose block.',
+      size: 50, mass: 18, res: 0, airfoil: 0.85, ballast: 4,
+      base: () => gliderMesh(Object.assign({}, O.GLIDER_PRESETS.trainer, { incidence: 2.5, tailInc: 0.5 }), 4),
+      launch: { speed: 5, pitch: 2, roll: 0, spin: 0 }, viewDist: 1.5, color: 0xE9D9B4, glider: true,
+    },
+  };
+
+  /** Build a mesh spec from a base mesh + user settings (size in cm, mass in g, res subdivisions). */
+  function meshSpec(base, opts) {
+    const o = Object.assign({ size: 20, mass: 20, res: 0, airfoil: 0, ballast: 0, zUp: false, name: 'Model', color: 0xB7C4D6, launch: { speed: 0, pitch: 15, roll: 10, spin: 0.5 }, viewDist: null, turbulence: 0 }, opts);
+    let mesh = A.normalizeMesh(base, o.size * 0.01, o.zUp);
+    let faces = mesh.indices.length / 3, res = 0;
+    while (res < o.res && faces * 4 <= 12000) { mesh = A.subdivide(mesh, 1); faces *= 4; res++; }
+    return {
+      name: o.name, kind: 'mesh', mesh, meshOpts: { mass: o.mass * 0.001, suction: o.airfoil, cd90: 1.3, stallDeg: 13, cf: 0.015, wake: 0.3, ballast: o.ballast * 0.001 },
+      launch: o.launch, viewDist: o.viewDist || Math.max(0.6, o.size * 0.01 * 2.8), turbulence: o.turbulence, visual: { color: o.color, mesh: true },
+      resApplied: res,
+    };
+  }
+
+  Object.assign(O, { MESH_CATALOG, meshSpec, boxMesh, icosphere, gliderMesh, dartMesh, parseSTL, parseOBJ, mergeMeshes: merge, transformMesh: transform });
+})(typeof self !== 'undefined' ? self : this);

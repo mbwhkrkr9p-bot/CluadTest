@@ -118,13 +118,15 @@
     padding: 7px 12px; font-family: "Chakra Petch", sans-serif; font-weight: 600; font-size: 12.5px; letter-spacing: 0.02em; cursor: pointer;
   }
   .obj.on { background: var(--accent); border-color: var(--accent); color: #101418; }
+  .obj.upload { border-style: dashed; color: var(--cyan); }
+  .design-presets button.on { border-color: var(--cyan); color: var(--cyan); }
   .obj:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   .actions { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
   .actions button {
-    border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px; padding: 10px 12px;
-    font-family: "Chakra Petch", sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.04em; cursor: pointer; white-space: nowrap;
+    border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px; padding: 9px 9px;
+    font-family: "Chakra Petch", sans-serif; font-weight: 600; font-size: 12.5px; letter-spacing: 0.03em; cursor: pointer; white-space: nowrap;
   }
-  .actions .primary { flex: 1 1 120px; background: var(--accent); border-color: var(--accent); color: #101418; font-size: 15px; }
+  .actions .primary { flex: 1 1 84px; background: var(--accent); border-color: var(--accent); color: #101418; font-size: 15px; }
   .actions .toggle.on { border-color: var(--cyan); color: var(--cyan); }
   .blurb { color: var(--muted); font-size: 12.5px; line-height: 1.4; margin: -2px 0 0; }
   .blurb b { color: var(--text); font-weight: 500; }
@@ -184,6 +186,10 @@
       <summary>Glider design <span class="stat" id="designStats"></span></summary>
       <div class="sliders" id="design"></div>
     </details>
+    <details id="modelPanel">
+      <summary>Model <span class="stat" id="modelStats"></span></summary>
+      <div class="sliders" id="model"></div>
+    </details>
     <details id="airPanel">
       <summary>Air &amp; launch <span class="stat" id="airStats"></span></summary>
       <div class="sliders" id="air"></div>
@@ -195,7 +201,13 @@
     <details id="aboutPanel">
       <summary>How it works</summary>
       <p class="foot">Drag to orbit, pinch or scroll to zoom, double-tap the view to stop following. Space bar drops.</p>
-      <p class="foot">Every object is a rigid body made of small flat panels plus spheres and point masses. Each panel feels its own
+      <p class="foot">Any 3D model can be dropped in as one mesh (STL or OBJ, binary or text). Every triangle becomes an aerodynamic
+        element; connected, near-coplanar triangles are grouped into flat regions so a wing carved from a solid still gets a wing's
+        pressure distribution and aspect ratio. Blunt edges with a long body behind them get the drag reduction of a reattaching
+        wake. Raising the resolution subdivides the mesh so the local wind, and the body's spin, are sampled more finely. Mass is
+        spread through the volume of a closed solid or over the surface of an open shell, and the inertia tensor is integrated
+        exactly from the triangles. Nose ballast is a point mass at the model's front-most vertex.</p>
+      <p class="foot">Every built-in object is a rigid body made of small flat panels plus spheres and point masses. Each panel feels its own
         local wind (including the body's spin), and from that gets lift, drag, stall, and a centre of pressure that walks from the
         quarter chord toward mid-chord as the angle of attack grows. Separated flow also gets the wake's tipping torque, scaled by
         the plate's added mass, which is what makes a card flutter or tumble instead of falling flat. Tufts show the local flow and
