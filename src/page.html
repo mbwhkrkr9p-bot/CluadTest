@@ -1,0 +1,211 @@
+<title>Airfall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #E8EDF3;
+    --panel: rgba(255, 255, 255, 0.82);
+    --panel-solid: #F7F9FC;
+    --line: rgba(23, 32, 46, 0.14);
+    --text: #17202E;
+    --muted: #5A6B84;
+    --accent: #D9781A;
+    --accent-ink: #B8600C;
+    --cyan: #1E9FA8;
+    --good: #3E9B3E;
+    --bad: #D8434A;
+    --sky1: #BFD6EA;
+    --sky2: #EEF3F8;
+    --ground: #CBD5E0;
+    --grid: #A9B7C7;
+    --grid2: #B9C5D3;
+    --fog: #DCE5EE;
+    --shadow: 0 8px 30px rgba(23, 32, 46, 0.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F1626;
+      --panel: rgba(17, 24, 40, 0.82);
+      --panel-solid: #131B2E;
+      --line: rgba(230, 236, 245, 0.13);
+      --text: #E6ECF5;
+      --muted: #8D9BB3;
+      --accent: #F79A3E;
+      --accent-ink: #FFB469;
+      --cyan: #4FD1D9;
+      --good: #7ED957;
+      --bad: #FF5A5F;
+      --sky1: #0B1020;
+      --sky2: #24395F;
+      --ground: #141C2E;
+      --grid: #2A3757;
+      --grid2: #1F2A45;
+      --fog: #0F1626;
+      --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F1626;
+    --panel: rgba(17, 24, 40, 0.82);
+    --panel-solid: #131B2E;
+    --line: rgba(230, 236, 245, 0.13);
+    --text: #E6ECF5;
+    --muted: #8D9BB3;
+    --accent: #F79A3E;
+    --accent-ink: #FFB469;
+    --cyan: #4FD1D9;
+    --good: #7ED957;
+    --bad: #FF5A5F;
+    --sky1: #0B1020;
+    --sky2: #24395F;
+    --ground: #141C2E;
+    --grid: #2A3757;
+    --grid2: #1F2A45;
+    --fog: #0F1626;
+    --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px;
+    overflow: hidden; -webkit-text-size-adjust: 100%;
+  }
+  #app { position: fixed; inset: 0; display: grid; grid-template-rows: 1fr auto; }
+  #c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  /* ---------- HUD ---------- */
+  .hud {
+    position: absolute; top: 0; left: 0; right: 0; padding: max(10px, env(safe-area-inset-top)) 12px 8px;
+    display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand .name {
+    font-family: "Chakra Petch", "IBM Plex Sans", sans-serif; font-weight: 700; font-size: 22px; letter-spacing: 0.02em;
+    color: var(--text); text-shadow: 0 1px 12px var(--bg);
+  }
+  .brand .sub { font-family: "Chakra Petch", sans-serif; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .tele { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px 2px; min-width: 56px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  .chip .k { font-family: "Chakra Petch", sans-serif; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .chip .v { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 14px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .chip .v small { font-size: 10px; color: var(--muted); margin-left: 2px; }
+  .chip.stall .v { color: var(--bad); }
+  .toast {
+    position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); pointer-events: none;
+    font-family: "Chakra Petch", sans-serif; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; opacity: 0; transition: opacity 0.3s;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ---------- bottom sheet ---------- */
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    background: var(--panel); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--line); box-shadow: var(--shadow);
+    padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 8px; max-height: 56vh; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips .sep { flex: 0 0 1px; background: var(--line); margin: 4px 4px; }
+  .obj {
+    flex: 0 0 auto; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 999px;
+    padding: 7px 12px; font-family: "Chakra Petch", sans-serif; font-weight: 600; font-size: 12.5px; letter-spacing: 0.02em; cursor: pointer;
+  }
+  .obj.on { background: var(--accent); border-color: var(--accent); color: #101418; }
+  .obj:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .actions { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+  .actions button {
+    border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px; padding: 10px 12px;
+    font-family: "Chakra Petch", sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.04em; cursor: pointer; white-space: nowrap;
+  }
+  .actions .primary { flex: 1 1 120px; background: var(--accent); border-color: var(--accent); color: #101418; font-size: 15px; }
+  .actions .toggle.on { border-color: var(--cyan); color: var(--cyan); }
+  .blurb { color: var(--muted); font-size: 12.5px; line-height: 1.4; margin: -2px 0 0; }
+  .blurb b { color: var(--text); font-weight: 500; }
+  details { border-top: 1px solid var(--line); padding-top: 6px; }
+  summary {
+    cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    font-family: "Chakra Petch", sans-serif; font-weight: 600; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 4px 0;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font-size: 15px; color: var(--muted); }
+  details[open] summary::after { content: "–"; }
+  summary .stat { font-family: "IBM Plex Mono", monospace; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11.5px; color: var(--text); }
+  summary .stat.bad { color: var(--bad); }
+  summary .stat.good { color: var(--good); }
+  .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; padding: 4px 0 6px; }
+  .sl { display: grid; grid-template-columns: 1fr auto; gap: 0 6px; align-items: baseline; }
+  .sl label { font-size: 11.5px; color: var(--muted); }
+  .sl output { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .sl input { grid-column: 1 / -1; width: 100%; margin: 2px 0 0; accent-color: var(--accent); }
+  .design-presets { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+  .design-presets button { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 6px; padding: 4px 8px; font-size: 11.5px; cursor: pointer; }
+  .log { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 3px 10px; font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-variant-numeric: tabular-nums; padding: 2px 0 4px; }
+  .log .h { font-family: "Chakra Petch", sans-serif; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .log .sw { width: 10px; height: 10px; border-radius: 2px; align-self: center; }
+  .log .name { font-family: "IBM Plex Sans", sans-serif; }
+  .foot { color: var(--muted); font-size: 11.5px; line-height: 1.45; margin: 4px 0; }
+
+  @media (min-width: 900px) {
+    .sheet {
+      left: auto; top: 0; bottom: 0; width: 380px; max-height: none; border-top: 0; border-left: 1px solid var(--line);
+      padding-top: 14px;
+    }
+    .hud { right: 380px; }
+    .chips { flex-wrap: wrap; }
+  }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+
+<div id="app">
+  <canvas id="c" aria-label="3D simulation view"></canvas>
+  <header class="hud">
+    <div class="brand"><span class="name">Airfall</span><span class="sub">drop things · watch the air decide</span></div>
+    <div class="tele" id="tele"></div>
+  </header>
+  <div class="toast" id="toast"></div>
+  <div class="sheet" id="sheet">
+    <div class="chips" id="objects" role="tablist"></div>
+    <div class="actions">
+      <button id="drop" class="primary">Drop</button>
+      <button id="reset" title="Remove every object">Clear</button>
+      <button id="pause" class="toggle" aria-pressed="false">Pause</button>
+      <button id="slow" class="toggle" aria-pressed="false">¼ speed</button>
+      <button id="forces" class="toggle" aria-pressed="false">Forces</button>
+    </div>
+    <p class="blurb" id="blurb"></p>
+    <details id="designPanel">
+      <summary>Glider design <span class="stat" id="designStats"></span></summary>
+      <div class="sliders" id="design"></div>
+    </details>
+    <details id="airPanel">
+      <summary>Air &amp; launch <span class="stat" id="airStats"></span></summary>
+      <div class="sliders" id="air"></div>
+    </details>
+    <details id="logPanel">
+      <summary>Flight log <span class="stat" id="logStats"></span></summary>
+      <div class="log" id="log"></div>
+    </details>
+    <details id="aboutPanel">
+      <summary>How it works</summary>
+      <p class="foot">Drag to orbit, pinch or scroll to zoom, double-tap the view to stop following. Space bar drops.</p>
+      <p class="foot">Every object is a rigid body made of small flat panels plus spheres and point masses. Each panel feels its own
+        local wind (including the body's spin), and from that gets lift, drag, stall, and a centre of pressure that walks from the
+        quarter chord toward mid-chord as the angle of attack grows. Separated flow also gets the wake's tipping torque, scaled by
+        the plate's added mass, which is what makes a card flutter or tumble instead of falling flat. Tufts show the local flow and
+        turn red where it has separated. Gliders launch at the speed where their own lift balances weight; SM is the static
+        margin, the distance from centre of mass to neutral point in wing chords. Air density 1.225 kg/m³.</p>
+    </details>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.158.0/three.min.js"></script>
+<!--@aero-->
+<!--@objects-->
+<!--@app-->

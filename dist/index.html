@@ -1,0 +1,1477 @@
+<title>Airfall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #E8EDF3;
+    --panel: rgba(255, 255, 255, 0.82);
+    --panel-solid: #F7F9FC;
+    --line: rgba(23, 32, 46, 0.14);
+    --text: #17202E;
+    --muted: #5A6B84;
+    --accent: #D9781A;
+    --accent-ink: #B8600C;
+    --cyan: #1E9FA8;
+    --good: #3E9B3E;
+    --bad: #D8434A;
+    --sky1: #BFD6EA;
+    --sky2: #EEF3F8;
+    --ground: #CBD5E0;
+    --grid: #A9B7C7;
+    --grid2: #B9C5D3;
+    --fog: #DCE5EE;
+    --shadow: 0 8px 30px rgba(23, 32, 46, 0.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F1626;
+      --panel: rgba(17, 24, 40, 0.82);
+      --panel-solid: #131B2E;
+      --line: rgba(230, 236, 245, 0.13);
+      --text: #E6ECF5;
+      --muted: #8D9BB3;
+      --accent: #F79A3E;
+      --accent-ink: #FFB469;
+      --cyan: #4FD1D9;
+      --good: #7ED957;
+      --bad: #FF5A5F;
+      --sky1: #0B1020;
+      --sky2: #24395F;
+      --ground: #141C2E;
+      --grid: #2A3757;
+      --grid2: #1F2A45;
+      --fog: #0F1626;
+      --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F1626;
+    --panel: rgba(17, 24, 40, 0.82);
+    --panel-solid: #131B2E;
+    --line: rgba(230, 236, 245, 0.13);
+    --text: #E6ECF5;
+    --muted: #8D9BB3;
+    --accent: #F79A3E;
+    --accent-ink: #FFB469;
+    --cyan: #4FD1D9;
+    --good: #7ED957;
+    --bad: #FF5A5F;
+    --sky1: #0B1020;
+    --sky2: #24395F;
+    --ground: #141C2E;
+    --grid: #2A3757;
+    --grid2: #1F2A45;
+    --fog: #0F1626;
+    --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px;
+    overflow: hidden; -webkit-text-size-adjust: 100%;
+  }
+  #app { position: fixed; inset: 0; display: grid; grid-template-rows: 1fr auto; }
+  #c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  /* ---------- HUD ---------- */
+  .hud {
+    position: absolute; top: 0; left: 0; right: 0; padding: max(10px, env(safe-area-inset-top)) 12px 8px;
+    display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand .name {
+    font-family: "Chakra Petch", "IBM Plex Sans", sans-serif; font-weight: 700; font-size: 22px; letter-spacing: 0.02em;
+    color: var(--text); text-shadow: 0 1px 12px var(--bg);
+  }
+  .brand .sub { font-family: "Chakra Petch", sans-serif; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .tele { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px 2px; min-width: 56px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  .chip .k { font-family: "Chakra Petch", sans-serif; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .chip .v { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 14px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .chip .v small { font-size: 10px; color: var(--muted); margin-left: 2px; }
+  .chip.stall .v { color: var(--bad); }
+  .toast {
+    position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); pointer-events: none;
+    font-family: "Chakra Petch", sans-serif; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; opacity: 0; transition: opacity 0.3s;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ---------- bottom sheet ---------- */
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    background: var(--panel); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--line); box-shadow: var(--shadow);
+    padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 8px; max-height: 56vh; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips .sep { flex: 0 0 1px; background: var(--line); margin: 4px 4px; }
+  .obj {
+    flex: 0 0 auto; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 999px;
+    padding: 7px 12px; font-family: "Chakra Petch", sans-serif; font-weight: 600; font-size: 12.5px; letter-spacing: 0.02em; cursor: pointer;
+  }
+  .obj.on { background: var(--accent); border-color: var(--accent); color: #101418; }
+  .obj:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .actions { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+  .actions button {
+    border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px; padding: 10px 12px;
+    font-family: "Chakra Petch", sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.04em; cursor: pointer; white-space: nowrap;
+  }
+  .actions .primary { flex: 1 1 120px; background: var(--accent); border-color: var(--accent); color: #101418; font-size: 15px; }
+  .actions .toggle.on { border-color: var(--cyan); color: var(--cyan); }
+  .blurb { color: var(--muted); font-size: 12.5px; line-height: 1.4; margin: -2px 0 0; }
+  .blurb b { color: var(--text); font-weight: 500; }
+  details { border-top: 1px solid var(--line); padding-top: 6px; }
+  summary {
+    cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    font-family: "Chakra Petch", sans-serif; font-weight: 600; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 4px 0;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font-size: 15px; color: var(--muted); }
+  details[open] summary::after { content: "–"; }
+  summary .stat { font-family: "IBM Plex Mono", monospace; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11.5px; color: var(--text); }
+  summary .stat.bad { color: var(--bad); }
+  summary .stat.good { color: var(--good); }
+  .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; padding: 4px 0 6px; }
+  .sl { display: grid; grid-template-columns: 1fr auto; gap: 0 6px; align-items: baseline; }
+  .sl label { font-size: 11.5px; color: var(--muted); }
+  .sl output { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .sl input { grid-column: 1 / -1; width: 100%; margin: 2px 0 0; accent-color: var(--accent); }
+  .design-presets { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+  .design-presets button { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 6px; padding: 4px 8px; font-size: 11.5px; cursor: pointer; }
+  .log { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 3px 10px; font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-variant-numeric: tabular-nums; padding: 2px 0 4px; }
+  .log .h { font-family: "Chakra Petch", sans-serif; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .log .sw { width: 10px; height: 10px; border-radius: 2px; align-self: center; }
+  .log .name { font-family: "IBM Plex Sans", sans-serif; }
+  .foot { color: var(--muted); font-size: 11.5px; line-height: 1.45; margin: 4px 0; }
+
+  @media (min-width: 900px) {
+    .sheet {
+      left: auto; top: 0; bottom: 0; width: 380px; max-height: none; border-top: 0; border-left: 1px solid var(--line);
+      padding-top: 14px;
+    }
+    .hud { right: 380px; }
+    .chips { flex-wrap: wrap; }
+  }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+
+<div id="app">
+  <canvas id="c" aria-label="3D simulation view"></canvas>
+  <header class="hud">
+    <div class="brand"><span class="name">Airfall</span><span class="sub">drop things · watch the air decide</span></div>
+    <div class="tele" id="tele"></div>
+  </header>
+  <div class="toast" id="toast"></div>
+  <div class="sheet" id="sheet">
+    <div class="chips" id="objects" role="tablist"></div>
+    <div class="actions">
+      <button id="drop" class="primary">Drop</button>
+      <button id="reset" title="Remove every object">Clear</button>
+      <button id="pause" class="toggle" aria-pressed="false">Pause</button>
+      <button id="slow" class="toggle" aria-pressed="false">¼ speed</button>
+      <button id="forces" class="toggle" aria-pressed="false">Forces</button>
+    </div>
+    <p class="blurb" id="blurb"></p>
+    <details id="designPanel">
+      <summary>Glider design <span class="stat" id="designStats"></span></summary>
+      <div class="sliders" id="design"></div>
+    </details>
+    <details id="airPanel">
+      <summary>Air &amp; launch <span class="stat" id="airStats"></span></summary>
+      <div class="sliders" id="air"></div>
+    </details>
+    <details id="logPanel">
+      <summary>Flight log <span class="stat" id="logStats"></span></summary>
+      <div class="log" id="log"></div>
+    </details>
+    <details id="aboutPanel">
+      <summary>How it works</summary>
+      <p class="foot">Drag to orbit, pinch or scroll to zoom, double-tap the view to stop following. Space bar drops.</p>
+      <p class="foot">Every object is a rigid body made of small flat panels plus spheres and point masses. Each panel feels its own
+        local wind (including the body's spin), and from that gets lift, drag, stall, and a centre of pressure that walks from the
+        quarter chord toward mid-chord as the angle of attack grows. Separated flow also gets the wake's tipping torque, scaled by
+        the plate's added mass, which is what makes a card flutter or tumble instead of falling flat. Tufts show the local flow and
+        turn red where it has separated. Gliders launch at the speed where their own lift balances weight; SM is the static
+        margin, the distance from centre of mass to neutral point in wing chords. Air density 1.225 kg/m³.</p>
+    </details>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.158.0/three.min.js"></script>
+<script>
+/*
+ * aero.js — quasi-steady panel aerodynamics + rigid-body dynamics.
+ *
+ * Every object is a rigid body built from thin panels (subdivided into
+ * sub-panels), spheres and point masses. Each sub-panel sees its own local
+ * relative wind (translation + rotation), so rotational damping, autorotation,
+ * flutter and tumbling all fall out of the same model. The chordwise pressure
+ * distribution is weighted so the centre of pressure sits at the quarter chord
+ * when the flow is attached and at mid-chord when stalled — that shift is what
+ * makes a card flutter and what makes a glider need a tail (or reflex) to fly.
+ *
+ * Body frame: +x forward (nose), +y up, +z starboard.  World: y up.
+ * Units: metres, kilograms, seconds.  No dependency on three.js.
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.AERO = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  const RHO = 1.225;      // air density kg/m³ (sea level, 15 °C)
+  const G = 9.81;
+  const DEG = Math.PI / 180;
+
+  // ---------- small vector / quaternion toolkit (plain arrays) ----------
+  const v3 = (x = 0, y = 0, z = 0) => [x, y, z];
+  const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const len = (a) => Math.sqrt(dot(a, a));
+  const norm = (a) => { const l = len(a); return l > 1e-12 ? scale(a, 1 / l) : [0, 0, 0]; };
+  const addTo = (a, b) => { a[0] += b[0]; a[1] += b[1]; a[2] += b[2]; return a; };
+
+  // quaternion [x,y,z,w]
+  const qIdentity = () => [0, 0, 0, 1];
+  const qMul = (a, b) => [
+    a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+    a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+    a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+    a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+  const qNorm = (q) => { const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1; return [q[0] / l, q[1] / l, q[2] / l, q[3] / l]; };
+  const qAxisAngle = (axis, ang) => { const a = norm(axis), s = Math.sin(ang / 2); return [a[0] * s, a[1] * s, a[2] * s, Math.cos(ang / 2)]; };
+  const qRot = (q, v) => { // rotate vector by quaternion
+    const x = q[0], y = q[1], z = q[2], w = q[3];
+    const ix = w * v[0] + y * v[2] - z * v[1];
+    const iy = w * v[1] + z * v[0] - x * v[2];
+    const iz = w * v[2] + x * v[1] - y * v[0];
+    const iw = -x * v[0] - y * v[1] - z * v[2];
+    return [ix * w + iw * -x + iy * -z - iz * -y,
+      iy * w + iw * -y + iz * -x - ix * -z,
+      iz * w + iw * -z + ix * -y - iy * -x];
+  };
+  const qInvRot = (q, v) => qRot([-q[0], -q[1], -q[2], q[3]], v);
+  // quaternion from euler (yaw about y, pitch about z, roll about x) applied roll→pitch→yaw
+  const qEuler = (rollDeg, pitchDeg, yawDeg) =>
+    qNorm(qMul(qAxisAngle([0, 1, 0], yawDeg * DEG), qMul(qAxisAngle([0, 0, 1], pitchDeg * DEG), qAxisAngle([1, 0, 0], rollDeg * DEG))));
+
+  // 3x3 matrices as flat row-major arrays
+  const m3zero = () => [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const m3mulv = (m, v) => [
+    m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
+    m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
+    m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
+  const m3inv = (m) => {
+    const [a, b, c, d, e, f, g, h, i] = m;
+    const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+    const det = a * A + b * B + c * C;
+    const s = 1 / det;
+    return [A * s, -(b * i - c * h) * s, (b * f - c * e) * s,
+      B * s, (a * i - c * g) * s, -(a * f - c * d) * s,
+      C * s, -(a * h - b * g) * s, (a * e - b * d) * s];
+  };
+
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+  // ---------- smooth pseudo-random noise (sum of sines) for gusts ----------
+  function makeNoise(seed) {
+    let s = seed || 1;
+    const rnd = () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; };
+    const comps = [];
+    for (let k = 0; k < 5; k++) comps.push({ f: 0.15 + 0.9 * rnd() * (k + 1), p: rnd() * 6.283, a: 1 / (k + 1) });
+    const fn = (t) => { let v = 0, w = 0; for (const c of comps) { v += c.a * Math.sin(c.f * t * 6.283 + c.p); w += c.a; } return v / w; };
+    fn.rnd = rnd;
+    return fn;
+  }
+
+  // ---------- panel construction ----------
+  /**
+   * rectPanel: a thin rectangular plate.
+   *   c  : centre [x,y,z]
+   *   u  : chord axis, unit-ish, pointing toward the leading edge (forward)
+   *   w  : span axis; normal n = w × u (so a level wing with u=+x, w=+z has n=+y)
+   *   hu, hw : half extents along u and w
+   *   nu, nw : subdivisions
+   *   shape  : 'rect' | 'ellipse'
+   *   rho    : areal density kg/m²
+   *   oneSided : only the +n face sees air (closed bodies)
+   *   cd90   : normal-force coefficient at 90° (flat plate ≈ 1.17–1.3, porous less)
+   *   cf     : skin-friction / profile drag coefficient
+   *   camber : { a0Deg: zero-lift angle offset, cm0: pitching moment coefficient }
+   *   stallDeg : onset of stall
+   *   suction : 0 = sharp flat plate (resultant normal to the plate), 1 = airfoil with full
+   *             leading-edge suction (attached-flow lift perpendicular to the local flow)
+   *   wake   : gain of the unsteady wake torque on separated flow (default 0.3, 0 = off)
+   *   AR     : aspect ratio override (whole-wing value for strips); null = derive from the plate
+   *   lifting : counts toward the neutral-point estimate
+   */
+  function rectPanel(o) {
+    const u = norm(o.u), w0 = o.w;
+    const w = norm(sub(w0, scale(u, dot(w0, u))));     // orthogonalise
+    const n = norm(cross(w, u));
+    return Object.assign({
+      type: 'panel', shape: 'rect', nu: 3, nw: 3, rho: 0.1, oneSided: false,
+      cd90: 1.2, cf: 0.012, stallDeg: 13, camber: null, lifting: false, name: '', suction: 0, AR: null, wake: 0.3,
+    }, o, { u, w, n });
+  }
+
+  /** A wing built from strips so sweep, taper, dihedral and incidence are honoured. */
+  function wing(o) {
+    const {
+      span, rootChord, tipChord = rootChord, sweepDeg = 0, dihedralDeg = 0, incidenceDeg = 0,
+      pos = [0, 0, 0], strips = 5, subChord = 3, rho = 0.2, camber = null, stallDeg = 13,
+      cd90 = 1.2, sides = [1, -1], name = 'wing', lifting = true, cf = 0.02, suction = 0.85,
+    } = o;
+    const out = [];
+    const half = span / 2;
+    const tanS = Math.tan(sweepDeg * DEG);
+    const AR = span * span / (span * (rootChord + tipChord) / 2);
+    for (const side of sides) {
+      const dih = qAxisAngle([1, 0, 0], -side * dihedralDeg * DEG);   // rotate wing plane up at the tip
+      for (let i = 0; i < strips; i++) {
+        const y0 = (i / strips) * half, y1 = ((i + 1) / strips) * half, ym = (y0 + y1) / 2;
+        const f = ym / half;
+        const chord = rootChord + (tipChord - rootChord) * f;
+        // quarter-chord line swept back: centre of strip at x = pos.x - ym*tanS (measured at the quarter chord)
+        const xqc = -ym * tanS;
+        const cx = xqc - chord / 4;                         // strip centre is a quarter chord behind the qc line
+        const local = [cx, 0, side * ym];
+        const c = add(pos, qRot(dih, local));
+        const inc = qAxisAngle([0, 0, 1], incidenceDeg * DEG);  // nose-up incidence
+        const u = qRot(dih, qRot(inc, [1, 0, 0]));
+        const w = qRot(dih, [0, 0, 1]);                     // same span axis both sides so n points up
+        out.push(rectPanel({
+          c, u, w, hu: chord / 2, hw: (y1 - y0) / 2, nu: subChord, nw: 1, rho, camber, stallDeg, cd90, cf, suction, AR,
+          lifting, name: name + (side > 0 ? 'R' : 'L') + i,
+        }));
+      }
+    }
+    return out;
+  }
+
+  /** Vertical fin (n = +z or -z). */
+  function fin(o) {
+    const { pos, chord, height, rho = 0.2, up = true, sweepDeg = 0, name = 'fin' } = o;
+    const dir = up ? 1 : -1;
+    const tanS = Math.tan(sweepDeg * DEG);
+    return rectPanel({
+      c: add(pos, [-(height / 2) * tanS * dir * 0, dir * height / 2, 0]), u: [1, 0, 0], w: [0, dir, 0],
+      hu: chord / 2, hw: height / 2, nu: 2, nw: 2, rho, name, cd90: 1.2,
+    });
+  }
+
+  /** Fuselage rod approximated as two crossed thin plates (drag-only, low lift slope). */
+  function rod(o) {
+    const { from, to, dia, rho = 0.3, name = 'rod' } = o;
+    const c = scale(add(from, to), 0.5), axis = sub(to, from), L = len(axis), a = norm(axis);
+    // pick two perpendicular directions
+    let p = Math.abs(a[1]) < 0.9 ? cross(a, [0, 1, 0]) : cross(a, [1, 0, 0]);
+    p = norm(p);
+    const q = norm(cross(a, p));
+    const common = { rho: rho / 2, cd90: 1.0, stallDeg: 90, cf: 0.02, nu: 4, nw: 1, name };
+    return [
+      rectPanel(Object.assign({ c, u: a, w: p, hu: L / 2, hw: dia / 2 }, common)),
+      rectPanel(Object.assign({ c, u: a, w: q, hu: L / 2, hw: dia / 2 }, common)),
+    ];
+  }
+
+  /** Closed box: six one-sided faces. */
+  function box(o) {
+    const { size, c = [0, 0, 0], rho = 0.5, sub = 3, cd90 = 1.05, name = 'box' } = o;
+    const [sx, sy, sz] = size;
+    const faces = [
+      { n: [1, 0, 0], u: [0, 1, 0], w: [0, 0, 1], hu: sy / 2, hw: sz / 2, off: [sx / 2, 0, 0] },
+      { n: [-1, 0, 0], u: [0, 1, 0], w: [0, 0, -1], hu: sy / 2, hw: sz / 2, off: [-sx / 2, 0, 0] },
+      { n: [0, 1, 0], u: [1, 0, 0], w: [0, 0, 1], hu: sx / 2, hw: sz / 2, off: [0, sy / 2, 0] },
+      { n: [0, -1, 0], u: [1, 0, 0], w: [0, 0, -1], hu: sx / 2, hw: sz / 2, off: [0, -sy / 2, 0] },
+      { n: [0, 0, 1], u: [1, 0, 0], w: [0, -1, 0], hu: sx / 2, hw: sy / 2, off: [0, 0, sz / 2] },
+      { n: [0, 0, -1], u: [1, 0, 0], w: [0, 1, 0], hu: sx / 2, hw: sy / 2, off: [0, 0, -sz / 2] },
+    ];
+    return faces.map((f) => {
+      // ensure n = w × u matches the outward normal
+      let u = f.u, w = f.w;
+      if (dot(cross(w, u), f.n) < 0) w = scale(w, -1);
+      return rectPanel({ c: add(c, f.off), u, w, hu: f.hu, hw: f.hw, nu: sub, nw: sub, rho, oneSided: true, cd90, stallDeg: 90, name });
+    });
+  }
+
+  // ---------- body assembly ----------
+  /**
+   * buildBody(spec): spec = { name, panels:[...], spheres:[{c,r,cd,m}], masses:[{p,m}],
+   *   turbulence (0..1 vortex-shedding torque noise), visual, viewDist, launch }
+   * Returns a body with geometry expressed relative to the centre of mass.
+   */
+  function buildBody(spec) {
+    const panels = spec.panels || [], spheres = spec.spheres || [], masses = spec.masses || [];
+    const subs = [];
+    let mass = 0; const mc = [0, 0, 0];
+    // sub-panels
+    panels.forEach((P, pi) => {
+      const total = P.shape === 'ellipse' ? Math.PI * P.hu * P.hw : 4 * P.hu * P.hw;
+      const cells = [];
+      for (let i = 0; i < P.nu; i++) for (let j = 0; j < P.nw; j++) {
+        const du = -P.hu + (i + 0.5) * (2 * P.hu / P.nu);
+        const dw = -P.hw + (j + 0.5) * (2 * P.hw / P.nw);
+        if (P.shape === 'ellipse' && (du * du) / (P.hu * P.hu) + (dw * dw) / (P.hw * P.hw) > 1) continue;
+        cells.push({ du, dw });
+      }
+      const area = total / cells.length;
+      for (const cell of cells) {
+        const p = add(P.c, add(scale(P.u, cell.du), scale(P.w, cell.dw)));
+        const m = area * P.rho;
+        subs.push({ p, area, m, panel: pi, du: cell.du, dw: cell.dw, hu: P.hu, hw: P.hw, u: P.u, w: P.w, n: P.n,
+          oneSided: P.oneSided, cd90: P.cd90, cf: P.cf, stall: P.stallDeg, camber: P.camber,
+          chord: 2 * P.hu, lifting: P.lifting, suction: P.suction || 0, AR: P.AR });
+        mass += m; addTo(mc, scale(p, m));
+      }
+    });
+    for (const s of spheres) { mass += s.m; addTo(mc, scale(s.c, s.m)); }
+    for (const pm of masses) { mass += pm.m; addTo(mc, scale(pm.p, pm.m)); }
+    const com = scale(mc, 1 / mass);
+    // shift geometry to COM frame
+    for (const s of subs) s.p = sub(s.p, com);
+    const panelsC = panels.map((P) => ({
+      c: sub(P.c, com), n: P.n, u: P.u, w: P.w, hu: P.hu, hw: P.hw, stall: P.stallDeg, oneSided: P.oneSided,
+      area: P.shape === 'ellipse' ? Math.PI * P.hu * P.hw : 4 * P.hu * P.hw, wake: P.wake,
+    }));
+    const sph = spheres.map((s) => Object.assign({}, s, { c: sub(s.c, com) }));
+    const pts = masses.map((pm) => ({ p: sub(pm.p, com), m: pm.m }));
+    // inertia tensor about COM
+    const I = m3zero();
+    const addPoint = (p, m) => {
+      const [x, y, z] = p;
+      I[0] += m * (y * y + z * z); I[4] += m * (x * x + z * z); I[8] += m * (x * x + y * y);
+      I[1] -= m * x * y; I[3] -= m * x * y; I[2] -= m * x * z; I[6] -= m * x * z; I[5] -= m * y * z; I[7] -= m * y * z;
+    };
+    for (const s of subs) addPoint(s.p, s.m);
+    for (const s of sph) { addPoint(s.c, s.m); const i = 0.4 * s.m * s.r * s.r; I[0] += i; I[4] += i; I[8] += i; }
+    for (const pm of pts) addPoint(pm.p, pm.m);
+    // guard against degenerate (flat) inertia: give a floor of 2% of the largest principal value
+    const maxI = Math.max(I[0], I[4], I[8]) || 1e-9;
+    for (const k of [0, 4, 8]) I[k] = Math.max(I[k], 0.02 * maxI);
+    const Iinv = m3inv(I);
+    // reference area/length
+    let areaTotal = subs.reduce((a, s) => a + s.area, 0) + sph.reduce((a, s) => a + Math.PI * s.r * s.r, 0);
+    let ext = 0;
+    for (const s of subs) ext = Math.max(ext, len(s.p) + Math.max(s.hu, s.hw) / Math.max(1, 1));
+    for (const s of sph) ext = Math.max(ext, len(s.c) + s.r);
+    for (const pm of pts) ext = Math.max(ext, len(pm.p));
+    // neutral point estimate (lifting horizontal panels, quarter chord, weighted by lift slope × area)
+    let npNum = 0, npDen = 0, meanChord = 0, liftArea = 0;
+    panels.forEach((P, pi) => {
+      if (!P.lifting) return;
+      const A = 4 * P.hu * P.hw;
+      const c = sub(P.c, com);
+      const xqc = c[0] + P.u[0] * P.hu / 2;   // quarter chord (u points forward)
+      const ar = 6; const a0 = 2 * Math.PI * ar / (ar + 2);
+      const wgt = a0 * A * Math.abs(P.n[1]);
+      npNum += wgt * xqc; npDen += wgt; meanChord += A * 2 * P.hu; liftArea += A;
+    });
+    const np = npDen > 0 ? npNum / npDen : 0;
+    meanChord = liftArea > 0 ? meanChord / liftArea : ext;
+    return {
+      name: spec.name || 'body', spec, mass, com, I, Iinv, subs, spheres: sph, points: pts, panels, panelsC,
+      areaTotal, ext, np, meanChord, liftArea,
+      staticMargin: liftArea > 0 ? (0 - np) / meanChord : null,   // COM is at 0; positive = stable
+      turbulence: spec.turbulence || 0,
+      // dynamic state
+      pos: [0, 0, 0], vel: [0, 0, 0], q: qIdentity(), omega: [0, 0, 0],
+      landed: false, t: 0, stats: null, forces: null,
+    };
+  }
+
+  // ---------- aerodynamics ----------
+  const tmp = {};
+  /**
+   * Accumulate aerodynamic force/torque (world frame) for body at its current state.
+   * windFn(pWorld, t) → wind velocity. Returns { F, T, info }.
+   */
+  function aeroForces(body, windFn, t, out) {
+    const F = [0, 0, 0], T = [0, 0, 0];
+    const q = body.q, pos = body.pos, vel = body.vel;
+    const omegaW = qRot(q, body.omega);
+    const tufts = out && out.tufts;
+    let lift = 0, drag = 0;   // for telemetry: force components ⟂ and ∥ to the COM airflow
+    const vairCom = sub(windFn(pos, t), vel);
+    const Vcom = len(vairCom);
+    const flowDir = Vcom > 1e-6 ? scale(vairCom, 1 / Vcom) : [0, -1, 0];
+
+    for (let k = 0; k < body.subs.length; k++) {
+      const s = body.subs[k];
+      const rW = qRot(q, s.p);
+      const vpt = add(vel, cross(omegaW, rW));
+      const vair = sub(windFn(add(pos, rW), t), vpt);
+      const V = len(vair);
+      if (tufts) { tufts[k * 6] = rW[0]; tufts[k * 6 + 1] = rW[1]; tufts[k * 6 + 2] = rW[2]; }
+      if (V < 1e-4) { if (tufts) { tufts[k * 6 + 3] = rW[0]; tufts[k * 6 + 4] = rW[1]; tufts[k * 6 + 5] = rW[2]; if (out.stall) out.stall[k] = 0; } continue; }
+      const nW = qRot(q, s.n), uW = qRot(q, s.u), wW = qRot(q, s.w);
+      const nd = dot(vair, nW) / V;            // = -sin(alpha)
+      let sinA = -nd;
+      if (s.oneSided && sinA < 0) {            // lee face of a closed body: weak base suction only
+        const fb = scale(nW, 0.25 * 0.5 * RHO * V * V * s.area);   // pulls outward (toward +n)
+        addTo(F, fb); addTo(T, cross(rW, fb));
+        if (tufts) { tufts[k * 6 + 3] = rW[0]; tufts[k * 6 + 4] = rW[1]; tufts[k * 6 + 5] = rW[2]; if (out.stall) out.stall[k] = 1; }
+        continue;
+      }
+      const a = Math.abs(sinA);
+      const cosA = Math.sqrt(Math.max(0, 1 - a * a));
+      const alphaDeg = Math.asin(Math.min(1, a)) / DEG;
+      // in-plane flow direction and chordwise station
+      const tIn = sub(vair, scale(nW, nd * V));
+      const tl = len(tIn);
+      const th = tl > 1e-9 ? scale(tIn, 1 / tl) : uW;
+      const tu = dot(th, uW), tw = dot(th, wW);
+      const L = s.hu * Math.abs(tu) + s.hw * Math.abs(tw) + 1e-9;    // half extent of the parent panel along the flow
+      const p = s.du * tu + s.dw * tw;
+      const xi = clamp((p + L) / (2 * L), 0, 1);                      // 0 at leading (upstream) edge
+      const spanHalf = s.hu * Math.abs(tw) + s.hw * Math.abs(tu) + 1e-9;
+      const AR = s.AR ? s.AR : clamp(spanHalf / L, 0.25, 12);
+      // stall blend
+      const st = smooth(s.stall, s.stall + 10, alphaDeg);
+      // centre of pressure walks from the quarter chord toward mid-chord as alpha rises
+      // (flat-plate data: x_cp/c ≈ 0.25 + 0.25·sin α) — the source of plate flutter and tumbling
+      const weight = (1 - a) * 3 * (1 - xi) * (1 - xi) + a;
+      // camber (only for flow arriving from the leading edge of a wing panel)
+      let sinEff = sinA, fwd = 0;
+      if (s.camber) {
+        fwd = clamp(-dot(vair, uW) / V, 0, 1);
+        sinEff = sinA - fwd * Math.sin(s.camber.a0Deg * DEG);   // camber lifts toward +n (cn < 0)
+      }
+      const a0 = 2 * Math.PI * AR / (AR + 2);
+      const clAtt = a0 * sinEff;                       // attached-flow lift coefficient (signed)
+      const cnStall = s.cd90 * sinA;                   // stalled: pressure force normal to the plate
+      const qA = 0.5 * RHO * V * V * s.area * weight;
+      const vhat = scale(vair, 1 / V);
+      // attached force: blend between "normal to the plate" (sharp edge, no suction) and
+      // "perpendicular to the flow" (airfoil with leading-edge suction)
+      const ls = s.suction;
+      let fAtt;
+      if (ls > 0) {
+        const lDir = norm(sub(nW, scale(vhat, dot(nW, vhat))));
+        fAtt = scale(add(scale(lDir, ls), scale(nW, (1 - ls) * cosA)), -clAtt * qA * (1 - st));
+      } else {
+        fAtt = scale(nW, -clAtt * cosA * qA * (1 - st));
+      }
+      const fStall = scale(nW, -cnStall * qA * st);
+      const cdi = (1 - st) * clAtt * clAtt / (Math.PI * 0.85 * AR);
+      const fT = scale(vhat, (s.cf + cdi) * qA);
+      const f = add(add(fAtt, fStall), fT);
+      addTo(F, f); addTo(T, cross(rW, f));
+      if (s.camber && s.camber.cm0) {
+        const M = 0.5 * RHO * V * V * s.area * s.chord * s.camber.cm0 * fwd * (1 - st);
+        addTo(T, scale(norm(cross(uW, nW)), M));   // nose-up axis, independent of which side the strip is on
+      }
+      // telemetry decomposition against the COM airflow
+      const fPar = dot(f, flowDir);
+      drag += fPar; lift += len(sub(f, scale(flowDir, fPar)));
+      if (tufts) {
+        const tl2 = 0.7 * Math.min(s.hu, s.hw) + 0.3 * Math.max(s.hu, s.hw);
+        const d = scale(norm(vair), tl2);
+        tufts[k * 6 + 3] = rW[0] + d[0]; tufts[k * 6 + 4] = rW[1] + d[1]; tufts[k * 6 + 5] = rW[2] + d[2];
+        if (out.stall) out.stall[k] = st;
+      }
+    }
+    // Unsteady wake torque on separated plates. A quasi-steady model makes a broadside fall
+    // perfectly stable (the plate is a parachute); in reality the shed wake tips it over, and
+    // whether it then flutters or tumbles depends on how heavy the plate is for its size.
+    // Modelled as an added-mass-scaled torque (ρ·π·c²/4·b, the plate's normal added mass)
+    // that turns a stalled plate away from broadside, gain `wake` (0.3 reproduces the
+    // paper-flutters / card-tumbles split). Zero when the flow is attached.
+    for (const P of body.panelsC) {
+      if (!P.wake) continue;
+      const rW = qRot(q, P.c);
+      const vpt = add(vel, cross(omegaW, rW));
+      const vair = sub(windFn(add(pos, rW), t), vpt);
+      const V = len(vair);
+      if (V < 1e-4) continue;
+      const nW = qRot(q, P.n), uW = qRot(q, P.u), wW = qRot(q, P.w);
+      const nd = dot(vair, nW);
+      if (P.oneSided && -nd < 0) continue;
+      const a = Math.abs(nd) / V;
+      const alphaDeg = Math.asin(Math.min(1, a)) / DEG;
+      const st = smooth(P.stall, P.stall + 10, alphaDeg);
+      if (st <= 0) continue;
+      const tIn = sub(vair, scale(nW, nd));
+      const tl = len(tIn);
+      if (tl < 1e-6) continue;
+      const th = scale(tIn, 1 / tl);
+      const tu = dot(th, uW), tw = dot(th, wW);
+      const L = P.hu * Math.abs(tu) + P.hw * Math.abs(tw) + 1e-9;         // half chord along the flow
+      const spanHalf = P.hu * Math.abs(tw) + P.hw * Math.abs(tu) + 1e-9;
+      const AR = spanHalf / L;
+      const m22 = RHO * Math.PI * L * L * (2 * spanHalf) * (AR / (AR + 1));  // added mass normal to the plate
+      const tq = scale(cross(tIn, scale(nW, nd)), m22 * st * P.wake);
+      addTo(T, tq);
+    }
+    for (const s of body.spheres) {
+      const rW = qRot(q, s.c);
+      const vpt = add(vel, cross(omegaW, rW));
+      const vair = sub(windFn(add(pos, rW), t), vpt);
+      const V = len(vair);
+      if (V < 1e-4) continue;
+      const f = scale(vair, 0.5 * RHO * V * s.cd * Math.PI * s.r * s.r);
+      addTo(F, f); addTo(T, cross(rW, f));
+      // viscous spin damping (small)
+      addTo(T, scale(omegaW, -0.5 * RHO * V * s.r * s.r * s.r * s.r * 0.2));
+      drag += dot(f, flowDir);
+    }
+    // vortex-shedding proxy: slow random torque for bluff bodies
+    if (body.turbulence > 0 && Vcom > 0.3) {
+      const nz = body.noise || (body.noise = [makeNoise(11), makeNoise(23), makeNoise(37)]);
+      const mag = body.turbulence * 0.5 * RHO * Vcom * Vcom * body.areaTotal * body.ext * 0.08;
+      addTo(T, [mag * nz[0](t), mag * nz[1](t), mag * nz[2](t)]);
+    }
+    return { F, T, lift, drag, V: Vcom, vair: vairCom };
+  }
+
+  // ---------- integration ----------
+  /**
+   * step(body, dt, windFn, t, out): advance by dt seconds with automatic sub-stepping.
+   */
+  function step(body, dt, windFn, t, out) {
+    if (body.landed) return;
+    // choose sub-steps from a stiffness estimate: tau = m / (rho * A * V)
+    const V = len(sub(windFn(body.pos, t), body.vel)) + 0.5;
+    const tauLin = body.mass / (RHO * body.areaTotal * V * 1.5);
+    const om = len(body.omega) * body.ext + 0.2;
+    const tauRot = Math.min(body.I[0], body.I[4], body.I[8]) / (RHO * body.areaTotal * (V + om) * body.ext * body.ext * 0.5 + 1e-12);
+    const tau = Math.min(tauLin, tauRot);
+    const n = clamp(Math.ceil(dt / Math.min(1 / 600, tau / 6)), 1, 80);
+    const h = dt / n;
+    let last = null;
+    for (let i = 0; i < n; i++) {
+      const want = (i === n - 1) ? out : null;
+      const r = aeroForces(body, windFn, t + i * h, want);
+      last = r;
+      // linear
+      const acc = add(scale(r.F, 1 / body.mass), [0, -G, 0]);
+      body.vel = add(body.vel, scale(acc, h));
+      body.pos = add(body.pos, scale(body.vel, h));
+      // angular (body frame, Euler's equations)
+      const Tb = qInvRot(body.q, r.T);
+      const Iw = m3mulv(body.I, body.omega);
+      const gyro = cross(body.omega, Iw);
+      const domega = m3mulv(body.Iinv, sub(Tb, gyro));
+      body.omega = add(body.omega, scale(domega, h));
+      // cap absurd spin rates (numerical guard)
+      const wl = len(body.omega);
+      if (wl > 400) body.omega = scale(body.omega, 400 / wl);
+      const dq = qMul(body.q, [0.5 * body.omega[0] * h, 0.5 * body.omega[1] * h, 0.5 * body.omega[2] * h, 0]);
+      body.q = qNorm([body.q[0] + dq[0], body.q[1] + dq[1], body.q[2] + dq[2], body.q[3] + dq[3]]);
+    }
+    body.t += dt;
+    body.forces = last;
+    // ground contact: lowest extremity of the body
+    if (body.pos[1] - lowestOffset(body) <= 0) {
+      body.pos[1] = lowestOffset(body);
+      body.landed = true;
+      body.vel = [0, 0, 0]; body.omega = [0, 0, 0];
+    }
+    return last;
+  }
+
+  function lowestOffset(body) {
+    let low = 0;
+    const q = body.q;
+    for (const s of body.subs) { const y = qRot(q, s.p)[1]; if (y < low) low = y; }
+    for (const s of body.spheres) { const y = qRot(q, s.c)[1] - s.r; if (y < low) low = y; }
+    for (const pm of body.points) { const y = qRot(q, pm.p)[1]; if (y < low) low = y; }
+    return -low;
+  }
+
+  /** Flight telemetry derived from state (main-wing angle of attack, glide ratio…). */
+  function telemetry(body, windFn, t) {
+    const vair = sub(windFn(body.pos, t), body.vel);
+    const V = len(vair);
+    const fwd = qRot(body.q, [1, 0, 0]);
+    const up = qRot(body.q, [0, 1, 0]);
+    // angle of attack in the body's symmetry plane
+    const vb = qInvRot(body.q, scale(vair, -1));  // body-frame velocity relative to air
+    const alpha = Math.atan2(-vb[1], vb[0]) / DEG;
+    const beta = Math.asin(clamp(vb[2] / (V || 1), -1, 1)) / DEG;
+    const horiz = Math.hypot(body.vel[0], body.vel[2]);
+    const sink = -body.vel[1];
+    const glide = sink > 0.05 ? horiz / sink : null;
+    return { V, alpha, beta, horiz, sink, glide, fwd, up, spin: len(body.omega) / (2 * Math.PI) };
+  }
+
+  /**
+   * trimAnalysis(body): scan angle of attack at unit speed, level attitude, find the
+   * stable pitch trim (moment crossing from nose-up to nose-down) and the speed at which
+   * lift balances weight there. Returns { alpha, V, glide, stable } or { alpha:null }.
+   */
+  function trimAnalysis(body) {
+    const save = { pos: body.pos, vel: body.vel, q: body.q, omega: body.omega };
+    body.q = qIdentity(); body.omega = [0, 0, 0]; body.pos = [0, 100, 0];
+    const wind0 = () => [0, 0, 0];
+    const rows = [];
+    for (let a = -8; a <= 24; a += 0.5) {
+      body.vel = [Math.cos(a * DEG), -Math.sin(a * DEG), 0];
+      const r = aeroForces(body, wind0, 0);
+      const lift = r.F[0] * Math.sin(a * DEG) + r.F[1] * Math.cos(a * DEG);
+      const drag = -(r.F[0] * Math.cos(a * DEG) - r.F[1] * Math.sin(a * DEG));
+      rows.push({ a, M: r.T[2], lift, drag });
+    }
+    let found = null;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i - 1].M > 0 && rows[i].M <= 0) {
+        const f = rows[i - 1].M / (rows[i - 1].M - rows[i].M);
+        const a = rows[i - 1].a + f * (rows[i].a - rows[i - 1].a);
+        const lift = rows[i - 1].lift + f * (rows[i].lift - rows[i - 1].lift);
+        const drag = rows[i - 1].drag + f * (rows[i].drag - rows[i - 1].drag);
+        if (lift > 1e-6) { found = { alpha: a, lift, drag }; break; }
+      }
+    }
+    Object.assign(body, save);
+    if (!found) return { alpha: null, V: null, glide: null, stable: false, rows };
+    const W = body.mass * G;
+    const V = Math.sqrt(W / Math.hypot(found.lift, found.drag));
+    return { alpha: found.alpha, V, glide: found.lift / Math.max(found.drag, 1e-9), stable: true, rows };
+  }
+
+  return {
+    trimAnalysis, RHO, G, DEG, v3, add, sub, scale, dot, cross, len, norm, qIdentity, qMul, qNorm, qAxisAngle, qRot, qInvRot, qEuler,
+    rectPanel, wing, fin, rod, box, buildBody, aeroForces, step, telemetry, lowestOffset, makeNoise, clamp,
+  };
+});
+
+</script>
+<script>
+/*
+ * objects.js — catalogue of droppable bodies and the parametric glider designer.
+ * Depends on aero.js (AERO global / module).
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./aero.js'));
+  else root.OBJECTS = factory(root.AERO);
+})(typeof self !== 'undefined' ? self : this, function (A) {
+  'use strict';
+  const { rectPanel, wing, fin, rod, box } = A;
+
+  // ------------------------------------------------------------------
+  // Glider designer: one parameter set describes wing, tail, fin, ballast.
+  // ------------------------------------------------------------------
+  const GLIDER_PARAMS = [
+    { key: 'span', label: 'Wing span', unit: 'cm', min: 10, max: 90, step: 1, scale: 0.01 },
+    { key: 'chord', label: 'Wing chord', unit: 'cm', min: 3, max: 25, step: 0.5, scale: 0.01 },
+    { key: 'taper', label: 'Tip / root chord', unit: '', min: 0.3, max: 1, step: 0.05, scale: 1 },
+    { key: 'sweep', label: 'Sweep', unit: '°', min: -10, max: 50, step: 1, scale: 1 },
+    { key: 'dihedral', label: 'Dihedral', unit: '°', min: -10, max: 25, step: 1, scale: 1 },
+    { key: 'incidence', label: 'Wing incidence', unit: '°', min: -4, max: 10, step: 0.5, scale: 1 },
+    { key: 'wingX', label: 'Wing position', unit: 'cm fwd', min: -10, max: 15, step: 0.5, scale: 0.01 },
+    { key: 'camber', label: 'Camber', unit: '°', min: 0, max: 6, step: 0.5, scale: 1 },
+    { key: 'airfoil', label: 'Airfoil (flat plate → wing section)', unit: '%', min: 0, max: 100, step: 5, scale: 0.01 },
+    { key: 'reflex', label: 'Reflex / trim', unit: 'cm0', min: -0.05, max: 0.1, step: 0.01, scale: 1 },
+    { key: 'tailArea', label: 'Tailplane area', unit: '% wing', min: 0, max: 40, step: 1, scale: 0.01 },
+    { key: 'tailArm', label: 'Tail arm', unit: 'cm', min: 5, max: 60, step: 1, scale: 0.01 },
+    { key: 'tailInc', label: 'Tail incidence', unit: '°', min: -8, max: 6, step: 0.5, scale: 1 },
+    { key: 'finArea', label: 'Fin area', unit: '% wing', min: 0, max: 25, step: 1, scale: 0.01 },
+    { key: 'nose', label: 'Nose weight', unit: 'g', min: 0, max: 40, step: 0.5, scale: 0.001 },
+    { key: 'skin', label: 'Skin weight', unit: 'g/m²', min: 60, max: 600, step: 10, scale: 0.001 },
+  ];
+
+  const GLIDER_PRESETS = {
+    trainer: {
+      label: 'Trainer glider', color: 0xE9D9B4, blurb: 'Rectangular wing, real tail, balsa skin. The safe way to fly.',
+      span: 50, chord: 9, taper: 1, sweep: 0, dihedral: 6, incidence: 1, wingX: 4, camber: 2.5, reflex: 0,
+      tailArea: 22, tailArm: 28, tailInc: 2, finArea: 8, nose: 7, skin: 250, airfoil: 85,
+    },
+    dart: {
+      label: 'Paper dart', color: 0xF4F4F0, blurb: 'The classic folded plane: swept, no tail, keel underneath.',
+      span: 20, chord: 22, taper: 0.35, sweep: 42, dihedral: 12, incidence: 1, wingX: 2, camber: 0, reflex: 0.02,
+      tailArea: 0, tailArm: 5, tailInc: 0, finArea: 6, nose: 5, skin: 160, airfoil: 35,
+    },
+    wing: {
+      label: 'Flying wing', color: 0x3C4A5E, blurb: 'Swept, no tail. Reflex on the trailing edge keeps it from tumbling.',
+      span: 70, chord: 16, taper: 0.5, sweep: 28, dihedral: 3, incidence: 2, wingX: 0, camber: 1, reflex: 0.03,
+      tailArea: 0, tailArm: 5, tailInc: 0, finArea: 10, nose: 12, skin: 220, airfoil: 85,
+    },
+    tailless: {
+      label: 'Untrimmed wing', color: 0x5E3C3C, blurb: 'The same wing with no reflex and no tail. Watch what happens.',
+      span: 70, chord: 16, taper: 0.5, sweep: 28, dihedral: 3, incidence: 2, wingX: 0, camber: 1, reflex: -0.01,
+      tailArea: 0, tailArm: 5, tailInc: 0, finArea: 10, nose: 12, skin: 220, airfoil: 85,
+    },
+    tailheavy: {
+      label: 'Tail-heavy trainer', color: 0xE9D9B4, blurb: 'The trainer without its nose weight. Stalls, dives, repeats.',
+      span: 50, chord: 9, taper: 1, sweep: 0, dihedral: 6, incidence: 1, wingX: 4, camber: 2.5, reflex: 0,
+      tailArea: 22, tailArm: 28, tailInc: 2, finArea: 8, nose: 2, skin: 250, airfoil: 85,
+    },
+  };
+
+  function gliderSpec(p, name) {
+    const span = p.span * 0.01, chord = p.chord * 0.01, skin = p.skin * 0.001;
+    const wingX = p.wingX * 0.01;
+    const panels = [];
+    // main wing (mean quarter chord at x = wingX)
+    panels.push(...wing({
+      span, rootChord: chord * 2 / (1 + p.taper), tipChord: chord * 2 * p.taper / (1 + p.taper),
+      sweepDeg: p.sweep, dihedralDeg: p.dihedral, incidenceDeg: p.incidence,
+      pos: [wingX + span / 4 * Math.tan(p.sweep * A.DEG) * 0.5, 0.01, 0], strips: 5, subChord: 3, rho: skin,
+      suction: (p.airfoil == null ? 85 : p.airfoil) * 0.01, cf: 0.025,
+      camber: (p.camber || p.reflex) ? { a0Deg: p.camber, cm0: p.reflex } : null, name: 'wing',
+    }));
+    const wingArea = span * chord;
+    // tail
+    const tailX = -p.tailArm * 0.01;
+    if (p.tailArea > 0) {
+      const tA = wingArea * p.tailArea * 0.01;
+      const tChord = Math.min(chord * 0.75, Math.sqrt(tA / 3));
+      const tSpan = tA / tChord;
+      panels.push(...wing({ span: tSpan, rootChord: tChord, tipChord: tChord, incidenceDeg: p.tailInc,
+        pos: [tailX, 0, 0], strips: 2, subChord: 2, rho: skin, name: 'tail', suction: 0.7 }));
+    }
+    if (p.finArea > 0) {
+      const fA = wingArea * p.finArea * 0.01;
+      const fChord = Math.sqrt(fA / 1.2), fH = fA / fChord;
+      const finX = p.tailArea > 0 ? tailX : wingX - chord * 0.3;
+      const up = p.tailArea > 0;   // paper dart / flying wing: keel underneath
+      panels.push(fin({ pos: [finX, 0, 0], chord: fChord, height: fH, rho: skin, up, name: 'fin' }));
+    }
+    // fuselage rod from nose to tail
+    const noseX = wingX + chord * 0.6 + 0.04;
+    const rodTo = p.tailArea > 0 ? tailX - 0.01 : wingX - chord * 0.6;
+    const fuseDia = p.tailArea > 0 ? 0.012 : 0.006;
+    panels.push(...rod({ from: [noseX, 0, 0], to: [rodTo, 0, 0], dia: fuseDia, rho: p.tailArea > 0 ? 0.6 : 0.2, name: 'fuselage' }));
+    const masses = [{ p: [noseX, 0, 0], m: p.nose * 0.001 + 0.0002 }];
+    return {
+      name: name || 'Glider', kind: 'glider', panels, masses, turbulence: 0,
+      launch: { speed: 5, pitch: 2, roll: 0, spin: 0 }, viewDist: Math.max(1.4, span * 2.6),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Everyday objects
+  // ------------------------------------------------------------------
+  const CATALOG = {
+    leaf: {
+      label: 'Leaf', blurb: 'A 9 cm leaf, 60 g/m². Light enough that the air wins.',
+      make: () => ({
+        name: 'Leaf', kind: 'object',
+        panels: [rectPanel({ c: [0, 0, 0], u: [1, 0, 0], w: [0, 0, 1], hu: 0.045, hw: 0.03, nu: 5, nw: 4, shape: 'ellipse', rho: 0.06, cd90: 1.2, stallDeg: 10, name: 'blade' })],
+        masses: [{ p: [-0.05, 0, 0], m: 0.00003 }],
+        turbulence: 0.15, viewDist: 0.9,
+        launch: { speed: 0, pitch: 20, roll: 25, spin: 0.5 }, visual: { color: 0x5da34a, leaf: true },
+      }),
+    },
+    card: {
+      label: 'Playing card', blurb: '89 × 64 mm, 1.8 g. Dense enough to tumble end over end.',
+      make: () => ({
+        name: 'Playing card', kind: 'object',
+        panels: [rectPanel({ c: [0, 0, 0], u: [1, 0, 0], w: [0, 0, 1], hu: 0.0445, hw: 0.032, nu: 4, nw: 3, rho: 0.31, cd90: 1.17, stallDeg: 10, name: 'card' })],
+        turbulence: 0.1, viewDist: 0.9,
+        launch: { speed: 0, pitch: 15, roll: 0, spin: 0.3 }, visual: { color: 0xf4f1e6, card: true },
+      }),
+    },
+    paper: {
+      label: 'Sheet of paper', blurb: 'A6 sheet, 80 g/m². Flutters, side-slips, sometimes tumbles.',
+      make: () => ({
+        name: 'Sheet of paper', kind: 'object',
+        panels: [rectPanel({ c: [0, 0, 0], u: [1, 0, 0], w: [0, 0, 1], hu: 0.0525, hw: 0.037, nu: 5, nw: 4, rho: 0.08, cd90: 1.2, stallDeg: 10, name: 'sheet' })],
+        turbulence: 0.12, viewDist: 0.9,
+        launch: { speed: 0, pitch: 12, roll: 8, spin: 0.2 }, visual: { color: 0xfafafa },
+      }),
+    },
+    box: {
+      label: 'Cardboard box', blurb: '20 cm cube, 150 g. Bluff body: drag, no lift, chaotic tumble.',
+      make: () => ({
+        name: 'Cardboard box', kind: 'object',
+        panels: box({ size: [0.2, 0.2, 0.2], rho: 0.15 / (6 * 0.04), sub: 3, cd90: 1.05 }),
+        turbulence: 1.0, viewDist: 1.4,
+        launch: { speed: 0, pitch: 12, roll: 20, spin: 0.8 }, visual: { color: 0xc59a5a, box: [0.2, 0.2, 0.2] },
+      }),
+    },
+    ball: {
+      label: 'Beach ball', blurb: '30 cm, 65 g. Only drag; reaches terminal speed in a couple of metres.',
+      make: () => ({
+        name: 'Beach ball', kind: 'object', panels: [],
+        spheres: [{ c: [0, 0, 0], r: 0.15, cd: 0.47, m: 0.065 }],
+        turbulence: 0, viewDist: 1.6,
+        launch: { speed: 0, pitch: 0, roll: 0, spin: 1 }, visual: { color: 0xf25c54 },
+      }),
+    },
+    samara: {
+      label: 'Maple seed', blurb: 'A 4 cm samara: heavy seed on a thin blade. It should spin as it falls.',
+      make: () => ({
+        name: 'Maple seed', kind: 'object',
+        panels: [rectPanel({ c: [0, 0, 0.018], u: [1, 0, 0], w: [0, 0, 1], hu: 0.0055, hw: 0.016, nu: 3, nw: 6, shape: 'ellipse', rho: 0.035, cd90: 1.2, stallDeg: 12, name: 'blade' })],
+        spheres: [{ c: [0, 0, -0.003], r: 0.004, cd: 0.5, m: 0.00004 }],
+        turbulence: 0.05, viewDist: 0.35,
+        launch: { speed: 0, pitch: 10, roll: 30, spin: 2 }, visual: { color: 0xb8925a, seed: true },
+      }),
+    },
+    shuttle: {
+      label: 'Shuttlecock', blurb: 'Cork nose, feather skirt. Dropped tail-first, it turns itself over.',
+      make: () => {
+        const panels = [];
+        const N = 8;
+        for (let i = 0; i < N; i++) {
+          const ang = (i / N) * Math.PI * 2;
+          const dir = [0, Math.cos(ang), Math.sin(ang)];
+          const r0 = 0.014, r1 = 0.033, x0 = -0.025, x1 = -0.075;
+          const c = [ (x0 + x1) / 2, dir[1] * (r0 + r1) / 2, dir[2] * (r0 + r1) / 2 ];
+          const u = A.norm([x0 - x1, dir[1] * (r0 - r1), dir[2] * (r0 - r1)]);   // toward the nose
+          const w = [0, -Math.sin(ang), Math.cos(ang)];
+          const L = Math.hypot(x0 - x1, r1 - r0);
+          const width = 2 * Math.PI * (r0 + r1) / 2 / N;
+          panels.push(rectPanel({ c, u, w, hu: L / 2, hw: width / 2, nu: 3, nw: 1, rho: 0.03, cd90: 0.5, cf: 0.02, stallDeg: 90, name: 'feather' + i }));
+        }
+        return {
+          name: 'Shuttlecock', kind: 'object', panels,
+          spheres: [{ c: [0, 0, 0], r: 0.013, cd: 0.45, m: 0.0028 }],
+          turbulence: 0, viewDist: 0.5,
+          launch: { speed: 0, pitch: 120, roll: 0, spin: 0.5 }, visual: { color: 0xf2f2f2, shuttle: true },
+        };
+      },
+    },
+  };
+
+  return { CATALOG, GLIDER_PARAMS, GLIDER_PRESETS, gliderSpec };
+});
+
+</script>
+<script>
+/* app.js — Airfall: three.js scene, controls and HUD around the aero core. */
+(function () {
+  'use strict';
+  const A = window.AERO, O = window.OBJECTS;
+  const $ = (s) => document.querySelector(s);
+  const DEG = Math.PI / 180;
+
+  // ------------------------------------------------------------------ theme
+  function readTheme() {
+    const cs = getComputedStyle(document.documentElement);
+    const g = (n) => cs.getPropertyValue(n).trim();
+    return { bg: g('--bg'), sky1: g('--sky1'), sky2: g('--sky2'), ground: g('--ground'), grid: g('--grid'), grid2: g('--grid2'),
+      fog: g('--fog'), accent: g('--accent'), cyan: g('--cyan'), good: g('--good'), bad: g('--bad'), text: g('--text'), muted: g('--muted') };
+  }
+  let T = readTheme();
+
+  // ------------------------------------------------------------------ scene
+  const canvas = $('#c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x000000, 40, 260);
+  const camera = new THREE.PerspectiveCamera(48, 1, 0.01, 900);
+
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { top: { value: new THREE.Color() }, bottom: { value: new THREE.Color() } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 top; uniform vec3 bottom; varying vec3 vP; void main(){ float h = normalize(vP).y; float t = smoothstep(-0.05, 0.6, h); gl_FragColor = vec4(mix(bottom, top, t), 1.0); }',
+  });
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(800, 24, 12), skyMat);
+  scene.add(sky);
+
+  const groundMat = new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0 });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), groundMat);
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+  const gridCoarse = new THREE.GridHelper(400, 400); gridCoarse.position.y = 0.003; scene.add(gridCoarse);
+  const gridFine = new THREE.GridHelper(6, 60); gridFine.position.y = 0.002; scene.add(gridFine);
+  gridCoarse.material.vertexColors = gridFine.material.vertexColors = false;
+  gridCoarse.material.transparent = gridFine.material.transparent = true;
+  gridCoarse.material.opacity = 0.55; gridFine.material.opacity = 0.35;
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.9); scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+  sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.002;
+  scene.add(sun); scene.add(sun.target);
+
+  // launch pole + distance markers
+  const markers = new THREE.Group(); scene.add(markers);
+  const poleMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.15, gapSize: 0.1, transparent: true, opacity: 0.5 });
+  const pole = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 10, 0)]), poleMat);
+  markers.add(pole);
+  function ring(r, y, color, opacity) {
+    const pts = []; for (let i = 0; i <= 64; i++) pts.push(new THREE.Vector3(r * Math.cos(i / 64 * 6.2832), y, r * Math.sin(i / 64 * 6.2832)));
+    return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
+  }
+  const labelSprites = [];
+  function label(text, x, z, w) {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 96;
+    const ctx = c.getContext('2d'); ctx.font = '600 44px "Chakra Petch", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    sp.position.set(x, 0.02 + w * 0.18, z); sp.scale.set(w, w * 0.375, 1); sp.userData = { text, ctx, c };
+    markers.add(sp); labelSprites.push(sp); return sp;
+  }
+  function paintLabels() {
+    for (const sp of labelSprites) {
+      const { ctx, c, text } = sp.userData; ctx.clearRect(0, 0, c.width, c.height);
+      ctx.fillStyle = T.muted; ctx.fillText(text, 128, 48); sp.material.map.needsUpdate = true;
+    }
+  }
+  [2, 5, 10, 20, 30, 50].forEach((d) => { markers.add(ring(0.12 * Math.sqrt(d), 0.004, 0xffffff, 0.35)).position.x = d; label(d + ' m', d, 0, 0.16 * Math.sqrt(d) + 0.6); });
+  markers.add(ring(0.25, 0.004, 0xffffff, 0.6));
+
+  function applyTheme() {
+    T = readTheme();
+    skyMat.uniforms.top.value.set(T.sky1); skyMat.uniforms.bottom.value.set(T.sky2);
+    groundMat.color.set(T.ground); scene.fog.color.set(T.fog);
+    gridCoarse.material.color.set(T.grid); gridFine.material.color.set(T.grid2);
+    poleMat.color.set(T.muted);
+    markers.children.forEach((m) => { if (m.isLine && m !== pole) m.material.color.set(T.grid); });
+    paintLabels();
+  }
+  applyTheme();
+  if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // ------------------------------------------------------------------ state
+  const state = {
+    selected: 'trainer', design: Object.assign({}, O.GLIDER_PRESETS.trainer),
+    height: 6, speed: null, angle: 0, wind: 0, gust: 0.3, turb: 0.2,
+    paused: false, slow: false, forces: false, tufts: true, follow: true,
+  };
+  const bodies = [];           // live bodies with meshes
+  const TRAIL_COLORS = ['#F79A3E', '#4FD1D9', '#E06CC0', '#7ED957', '#F2D45C', '#8FA3FF'];
+  let colorIx = 0, simTime = 0;
+  const noise = [A.makeNoise(3), A.makeNoise(5), A.makeNoise(8), A.makeNoise(13)];
+  const wind = (p, t) => {
+    const W = state.wind, g = state.gust, tb = state.turb;
+    const base = -W * (1 + 0.35 * g * noise[0](t));
+    const s = tb * (0.6 + 0.25 * Math.abs(W));
+    return [base + s * noise[1](t * 1.7 + p[0] * 0.4 + p[2] * 0.3), 0.12 * W * g * noise[2](t) + s * 0.5 * noise[3](t * 2.1 + p[1] * 0.5), s * noise[2](t * 1.3 + p[2] * 0.5 + p[0] * 0.2)];
+  };
+
+  // ------------------------------------------------------------------ specs
+  function currentSpec() {
+    if (O.CATALOG[state.selected]) return O.CATALOG[state.selected].make();
+    const preset = O.GLIDER_PRESETS[state.selected];
+    const spec = O.gliderSpec(state.design, preset ? preset.label : 'Custom glider');
+    spec.visual = { color: preset && preset.color || 0xE9D9B4 };
+    return spec;
+  }
+  function isGlider() { return !O.CATALOG[state.selected]; }
+
+  // ------------------------------------------------------------------ meshes
+  const vec = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+  function makeMesh(body) {
+    const g = new THREE.Group();
+    const vis = body.spec.visual || {};
+    const baseColor = vis.color != null ? vis.color : 0xE9D9B4;
+    const mat = (color, extra) => new THREE.MeshStandardMaterial(Object.assign({ color, side: THREE.DoubleSide, roughness: 0.75, metalness: 0.02 }, extra || {}));
+    if (vis.box) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(vis.box[0], vis.box[1], vis.box[2]), mat(baseColor, { side: THREE.FrontSide }));
+      m.position.copy(vec(A.scale(body.com, -1))); m.castShadow = true; g.add(m);
+    } else {
+      body.panelsC.forEach((P, i) => {
+        const src = body.panels[i];
+        if (src.name === 'fuselage') {
+          if (src === body.panels.find((p) => p.name === 'fuselage')) {
+            const cyl = new THREE.Mesh(new THREE.CylinderGeometry(P.hw, P.hw, 2 * P.hu, 10), mat(0x2E3644, { side: THREE.FrontSide }));
+            cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), vec(P.u));
+            cyl.position.copy(vec(P.c)); cyl.castShadow = true; g.add(cyl);
+          }
+          return;
+        }
+        // plane spans (w, u) with normal n: a right-handed basis (w × u = n)
+        let geo;
+        if (src.shape === 'ellipse') { geo = new THREE.CircleGeometry(1, 40); geo.scale(P.hw, P.hu, 1); }
+        else geo = new THREE.PlaneGeometry(2 * P.hw, 2 * P.hu);
+        let color = baseColor;
+        if (src.name === 'fin') color = 0x2E3644;
+        if (src.name.startsWith('tail')) color = baseColor;
+        if (vis.leaf) color = i === 0 ? baseColor : 0x3f7a2f;
+        const m = new THREE.Mesh(geo, mat(color));
+        const basis = new THREE.Matrix4().makeBasis(vec(P.w), vec(P.u), vec(P.n));
+        m.quaternion.setFromRotationMatrix(basis);
+        m.position.copy(vec(P.c)); m.castShadow = true; g.add(m);
+        if (vis.card) {   // pip on one face so tumbling reads
+          const pip = new THREE.Mesh(new THREE.CircleGeometry(P.hw * 0.35, 24), mat(0xC8313A, { side: THREE.FrontSide }));
+          pip.quaternion.copy(m.quaternion); pip.position.copy(m.position).add(vec(P.n).multiplyScalar(0.0006)); g.add(pip);
+        }
+      });
+      if (vis.leaf) {   // stem
+        const P = body.panelsC[0];
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.0012, 0.0012, 0.05, 6), mat(0x7a5a2c));
+        stem.rotation.z = Math.PI / 2; stem.position.copy(vec(A.add(P.c, [-P.hu - 0.02, 0, 0]))); g.add(stem);
+      }
+    }
+    for (const s of body.spheres) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(s.r, 24, 16), mat(vis.seed ? 0x6b4a24 : baseColor, { side: THREE.FrontSide }));
+      m.position.copy(vec(s.c)); m.castShadow = true; g.add(m);
+    }
+    for (const pm of body.points) {   // ballast
+      const m = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.004, body.ext * 0.03), 12, 8), mat(0x2E3644, { side: THREE.FrontSide }));
+      m.position.copy(vec(pm.p)); g.add(m);
+    }
+    // centre of mass marker
+    const cg = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.003, body.ext * 0.02), 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    cg.material.color.set(T.accent); g.add(cg);
+    return g;
+  }
+
+  function makeTufts(body) {
+    const n = body.subs.length;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 6), 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 6), 3));
+    const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }));
+    lines.frustumCulled = false;
+    return lines;
+  }
+  function makeTrail(color) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6000 * 3), 3));
+    geo.setDrawRange(0, 0);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }));
+    line.frustumCulled = false; line.userData.count = 0; return line;
+  }
+
+  // ------------------------------------------------------------------ staged (preview) body
+  let staged = null;
+  function restage() {
+    if (staged) { scene.remove(staged.mesh); disposeGroup(staged.mesh); }
+    const spec = currentSpec();
+    const body = A.buildBody(spec);
+    const mesh = makeMesh(body);
+    scene.add(mesh);
+    staged = { body, mesh, spec };
+    placeStaged();
+    refreshDesignStats();
+    pole.geometry.setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, state.height, 0)]);
+    pole.computeLineDistances();
+    updateBlurb();
+  }
+  function launchQuat(spec) {
+    const L = spec.launch;
+    const pitch = isGlider() ? state.angle : L.pitch;
+    return A.qEuler(L.roll, pitch, 0);
+  }
+  function placeStaged() {
+    if (!staged) return;
+    const q = launchQuat(staged.spec);
+    staged.mesh.position.set(0, state.height, 0);
+    staged.mesh.quaternion.set(q[0], q[1], q[2], q[3]);
+  }
+  function disposeGroup(g) { g.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); }
+
+  // ------------------------------------------------------------------ drop
+  function drop() {
+    if (!staged) return;
+    const spec = staged.spec, body = staged.body;
+    const q = launchQuat(spec);
+    body.pos = [0, state.height, 0];
+    body.q = q;
+    const speed = isGlider() ? (state.speed == null ? (staged.trim && staged.trim.V) || spec.launch.speed : state.speed) : spec.launch.speed;
+    body.vel = A.qRot(q, [speed, 0, 0]);
+    const s = spec.launch.spin || 0;
+    body.omega = [s * (Math.random() - 0.5) * 2, s * (Math.random() - 0.5) * 2, s * (Math.random() - 0.5) * 2];
+    body.t = 0; body.landed = false; body.launchedAt = simTime;
+    body.noise = [A.makeNoise(Math.random() * 1e6 | 0), A.makeNoise(Math.random() * 1e6 | 0), A.makeNoise(Math.random() * 1e6 | 0)];
+    body.out = { tufts: new Float32Array(body.subs.length * 6), stall: new Float32Array(body.subs.length) };
+    const color = TRAIL_COLORS[colorIx++ % TRAIL_COLORS.length];
+    const live = {
+      body, mesh: staged.mesh, tufts: makeTufts(body), trail: makeTrail(color), color, name: spec.name, maxV: 0, launchHeight: state.height,
+      arrows: [new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 1, 0x4FD1D9, 0.2, 0.1),
+        new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0xF79A3E, 0.2, 0.1),
+        new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(), 1, 0xBBBBBB, 0.2, 0.1)],
+    };
+    live.arrows[0].setColor(new THREE.Color(T.cyan)); live.arrows[1].setColor(new THREE.Color(T.accent)); live.arrows[2].setColor(new THREE.Color(T.muted));
+    live.arrows.forEach((a) => { a.visible = state.forces; scene.add(a); });
+    scene.add(live.tufts); scene.add(live.trail);
+    bodies.push(live);
+    while (bodies.length > 6) removeBody(bodies.shift());
+    staged = null;
+    follow = live; state.follow = true;
+    restage();
+    toast(spec.name + (speed > 0 ? ' launched at ' + speed.toFixed(1) + ' m/s' : ' released'));
+  }
+  function removeBody(live) {
+    scene.remove(live.mesh); scene.remove(live.tufts); scene.remove(live.trail); live.arrows.forEach((a) => scene.remove(a));
+    disposeGroup(live.mesh); live.tufts.geometry.dispose(); live.trail.geometry.dispose();
+    if (follow === live) follow = null;
+  }
+  function clearAll() { while (bodies.length) removeBody(bodies.pop()); flightLog.length = 0; renderLog(); }
+
+  // ------------------------------------------------------------------ camera
+  let follow = null;
+  const sheetEl = $('#sheet');
+  const cam = { theta: 0.9, phi: 1.05, dist: 1.4, target: new THREE.Vector3(0, state.height, 0) };
+  function viewDist() { const s = (follow && follow.body.spec) || (staged && staged.spec); return s && s.viewDist || 1.4; }
+  cam.dist = viewDist();
+  function updateCamera(dt) {
+    const src = state.follow && follow ? follow.body.pos : (staged ? [0, state.height, 0] : null);
+    if (src) { const k = 1 - Math.exp(-dt * 8); cam.target.lerp(vec(src), k); }
+    const d = cam.dist;
+    camera.position.set(
+      cam.target.x + d * Math.sin(cam.phi) * Math.cos(cam.theta),
+      Math.max(0.03, cam.target.y + d * Math.cos(cam.phi)),
+      cam.target.z + d * Math.sin(cam.phi) * Math.sin(cam.theta));
+    camera.near = Math.max(0.005, d * 0.02); camera.far = 900; camera.updateProjectionMatrix();
+    // on a phone the sheet covers the bottom of the canvas: aim below the target so it sits in the visible middle
+    const sheetH = window.innerWidth < 900 ? sheetEl.getBoundingClientRect().height : 0;
+    const dy = d * Math.tan(camera.fov * DEG / 2) * (sheetH / Math.max(1, canvas.clientHeight));
+    camera.lookAt(cam.target.x, cam.target.y - dy, cam.target.z);
+    // sun follows the target so the shadow stays sharp at every scale
+    const r = Math.max(0.6, d * 2.2);
+    sun.position.set(cam.target.x + r * 0.5, cam.target.y + r, cam.target.z + r * 0.35);
+    sun.target.position.copy(cam.target);
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -r; sun.shadow.camera.right = sun.shadow.camera.top = r;
+    sun.shadow.camera.near = 0.05; sun.shadow.camera.far = r * 4; sun.shadow.camera.updateProjectionMatrix();
+    gridFine.position.x = Math.round(cam.target.x); gridFine.position.z = Math.round(cam.target.z);
+    gridFine.visible = d < 6;
+  }
+  // pointer orbit + pinch
+  const ptrs = new Map(); let lastPinch = 0, lastTap = 0;
+  canvas.addEventListener('pointerdown', (e) => { ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); canvas.setPointerCapture(e.pointerId);
+    const now = performance.now(); if (now - lastTap < 300 && ptrs.size === 1) { state.follow = !state.follow; toast(state.follow ? 'Following' : 'Free camera'); } lastTap = now; });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!ptrs.has(e.pointerId)) return;
+    const p = ptrs.get(e.pointerId);
+    if (ptrs.size === 1) { cam.theta += (e.clientX - p.x) * 0.006; cam.phi = A.clamp(cam.phi - (e.clientY - p.y) * 0.005, 0.15, 1.52); }
+    p.x = e.clientX; p.y = e.clientY;
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y); if (lastPinch) cam.dist = A.clamp(cam.dist * (lastPinch / d), 0.08, 80); lastPinch = d; }
+  });
+  const up = (e) => { ptrs.delete(e.pointerId); if (ptrs.size < 2) lastPinch = 0; };
+  canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+  canvas.addEventListener('wheel', (e) => { e.preventDefault(); cam.dist = A.clamp(cam.dist * Math.exp(e.deltaY * 0.0015), 0.08, 80); }, { passive: false });
+
+  // ------------------------------------------------------------------ HUD
+  const tele = $('#tele');
+  const chipDefs = [['V', 'airspeed', 'm/s'], ['α', 'angle of attack', '°'], ['sink', 'sink rate', 'm/s'], ['L/D', 'glide ratio', ''], ['spin', 'spin', 'rev/s'], ['alt', 'height', 'm'], ['dist', 'distance', 'm']];
+  const chips = {};
+  for (const [id, k, unit] of chipDefs) {
+    const el = document.createElement('div'); el.className = 'chip'; el.innerHTML = `<div class="k">${k}</div><div class="v"><span>–</span><small>${unit}</small></div>`;
+    tele.appendChild(el); chips[id] = el;
+  }
+  const setChip = (id, v) => { chips[id].querySelector('.v span').textContent = v; };
+  let hudClock = 0;
+  function updateHUD() {
+    const live = follow;
+    if (!live) { for (const id in chips) setChip(id, '–'); chips['α'].classList.remove('stall'); return; }
+    const b = live.body;
+    const tel = A.telemetry(b, wind, simTime);
+    setChip('V', tel.V.toFixed(1)); setChip('α', tel.alpha.toFixed(0)); setChip('sink', tel.sink.toFixed(1));
+    setChip('L/D', tel.glide ? tel.glide.toFixed(1) : '–'); setChip('spin', tel.spin.toFixed(1));
+    setChip('alt', b.pos[1].toFixed(2)); setChip('dist', Math.hypot(b.pos[0], b.pos[2]).toFixed(1));
+    chips['α'].classList.toggle('stall', Math.abs(tel.alpha) > 14 && tel.V > 0.5 && !b.landed);
+  }
+  const toastEl = $('#toast'); let toastTimer = 0;
+  function toast(msg) { toastEl.textContent = msg; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800); }
+
+  // ------------------------------------------------------------------ object chips
+  const objectsEl = $('#objects');
+  function buildChips() {
+    objectsEl.innerHTML = '';
+    const mk = (key, labelText) => {
+      const b = document.createElement('button'); b.className = 'obj' + (key === state.selected ? ' on' : ''); b.textContent = labelText; b.setAttribute('role', 'tab');
+      b.addEventListener('click', () => select(key)); objectsEl.appendChild(b);
+    };
+    for (const [k, o] of Object.entries(O.CATALOG)) mk(k, o.label);
+    const sep = document.createElement('div'); sep.className = 'sep'; objectsEl.appendChild(sep);
+    for (const [k, p] of Object.entries(O.GLIDER_PRESETS)) mk(k, p.label);
+  }
+  function select(key) {
+    state.selected = key;
+    if (O.GLIDER_PRESETS[key]) { state.design = Object.assign({}, O.GLIDER_PRESETS[key]); state.speed = null; syncDesignSliders(); }
+    $('#designPanel').style.display = isGlider() ? '' : 'none';
+    objectsEl.querySelectorAll('.obj').forEach((b) => b.classList.toggle('on', b.textContent === (O.CATALOG[key] || O.GLIDER_PRESETS[key]).label));
+    restage(); cam.dist = viewDist();
+    if (!isGlider() && state.height < 3) { state.height = 6; syncAir(); restage(); }
+  }
+  function updateBlurb() {
+    const src = O.CATALOG[state.selected] || O.GLIDER_PRESETS[state.selected];
+    const b = staged && staged.body;
+    let s = `<b>${src.label}.</b> ${src.blurb}`;
+    if (b) s += ` Mass ${(b.mass * 1000).toFixed(b.mass < 0.001 ? 2 : 1)} g.`;
+    $('#blurb').innerHTML = s;
+  }
+
+  // ------------------------------------------------------------------ design sliders
+  const designEl = $('#design');
+  function buildDesign() {
+    designEl.innerHTML = '';
+    const presets = document.createElement('div'); presets.className = 'design-presets';
+    for (const [k, p] of Object.entries(O.GLIDER_PRESETS)) { const b = document.createElement('button'); b.textContent = p.label; b.addEventListener('click', () => select(k)); presets.appendChild(b); }
+    designEl.appendChild(presets);
+    for (const P of O.GLIDER_PARAMS) {
+      const w = document.createElement('div'); w.className = 'sl';
+      w.innerHTML = `<label for="d_${P.key}">${P.label}</label><output id="o_${P.key}"></output><input type="range" id="d_${P.key}" min="${P.min}" max="${P.max}" step="${P.step}">`;
+      designEl.appendChild(w);
+      const inp = w.querySelector('input');
+      inp.addEventListener('input', () => { state.design[P.key] = parseFloat(inp.value); state.selected = customKey(); w.querySelector('output').textContent = fmt(P, inp.value); restage(); });
+    }
+    syncDesignSliders();
+  }
+  const fmt = (P, v) => `${(+v).toFixed(P.step < 1 ? (P.step < 0.1 ? 2 : 1) : 0)} ${P.unit}`.trim();
+  function customKey() {   // editing a preset makes it a custom design that keeps the preset's look
+    if (!O.GLIDER_PRESETS[state.selected]) return state.selected;
+    const base = state.selected;
+    O.GLIDER_PRESETS['custom'] = Object.assign({}, O.GLIDER_PRESETS[base], { label: 'Custom glider', blurb: 'Your own design. Tune it until the trim numbers look right, then drop it.' });
+    return 'custom';
+  }
+  function syncDesignSliders() {
+    for (const P of O.GLIDER_PARAMS) {
+      const inp = document.getElementById('d_' + P.key); if (!inp) continue;
+      const v = state.design[P.key] == null ? P.min : state.design[P.key];
+      inp.value = v; document.getElementById('o_' + P.key).textContent = fmt(P, v);
+    }
+  }
+  function refreshDesignStats() {
+    const el = $('#designStats');
+    if (!isGlider() || !staged) { el.textContent = ''; return; }
+    const b = staged.body;
+    const tr = A.trimAnalysis(b);
+    staged.trim = tr;
+    const sm = b.staticMargin == null ? null : b.staticMargin * 100;
+    let s = `${(b.mass * 1000).toFixed(0)} g · SM ${sm == null ? '–' : sm.toFixed(0) + '%'}`;
+    s += tr.alpha == null ? ' · no trim' : ` · trims at ${tr.alpha.toFixed(1)}° / ${tr.V.toFixed(1)} m/s · L/D ${tr.glide.toFixed(1)}`;
+    el.textContent = s;
+    el.className = 'stat ' + (tr.alpha == null || sm < 2 ? 'bad' : (sm > 5 && sm < 35 ? 'good' : ''));
+    syncAir();
+  }
+
+  // ------------------------------------------------------------------ air & launch sliders
+  const airEl = $('#air');
+  const AIR = [
+    { key: 'height', label: 'Drop height', unit: 'm', min: 1, max: 40, step: 0.5 },
+    { key: 'speed', label: 'Launch speed (gliders)', unit: 'm/s', min: 0, max: 14, step: 0.5, auto: true },
+    { key: 'angle', label: 'Launch angle', unit: '°', min: -30, max: 40, step: 1 },
+    { key: 'wind', label: 'Wind (+ = headwind)', unit: 'm/s', min: -6, max: 6, step: 0.5 },
+    { key: 'gust', label: 'Gustiness', unit: '', min: 0, max: 1, step: 0.1 },
+    { key: 'turb', label: 'Turbulence', unit: 'm/s', min: 0, max: 1, step: 0.1 },
+  ];
+  function buildAir() {
+    for (const P of AIR) {
+      const w = document.createElement('div'); w.className = 'sl';
+      w.innerHTML = `<label for="a_${P.key}">${P.label}</label><output id="ao_${P.key}"></output><input type="range" id="a_${P.key}" min="${P.min}" max="${P.max}" step="${P.step}">`;
+      airEl.appendChild(w);
+      const inp = w.querySelector('input');
+      inp.addEventListener('input', () => {
+        state[P.key] = parseFloat(inp.value);
+        if (P.key === 'height') { placeStaged(); pole.geometry.setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, state.height, 0)]); pole.computeLineDistances(); }
+        if (P.key === 'angle') placeStaged();
+        syncAir();
+      });
+      inp.addEventListener('dblclick', () => { if (P.auto) { state.speed = null; syncAir(); } });
+    }
+    syncAir();
+  }
+  function syncAir() {
+    for (const P of AIR) {
+      const inp = document.getElementById('a_' + P.key); if (!inp) continue;
+      let v = state[P.key];
+      if (P.key === 'speed' && v == null) { v = staged && staged.trim && staged.trim.V ? staged.trim.V : 0; inp.value = v; document.getElementById('ao_' + P.key).textContent = isGlider() ? v.toFixed(1) + ' m/s (trim)' : '–'; continue; }
+      inp.value = v; document.getElementById('ao_' + P.key).textContent = `${(+v).toFixed(P.step < 1 ? 1 : 0)} ${P.unit}`.trim();
+    }
+    const w = state.wind;
+    $('#airStats').textContent = `${state.height} m · ${w === 0 ? 'calm' : Math.abs(w).toFixed(1) + ' m/s ' + (w > 0 ? 'headwind' : 'tailwind')}`;
+  }
+
+  // ------------------------------------------------------------------ flight log
+  const flightLog = [];
+  function onLand(live) {
+    const b = live.body;
+    const dist = Math.hypot(b.pos[0], b.pos[2]);
+    const time = b.t;
+    const h = state.height;
+    const entry = { name: live.name, color: live.color, dist, time, glide: dist / Math.max(0.01, live.launchHeight || h), maxV: live.maxV };
+    flightLog.unshift(entry); if (flightLog.length > 8) flightLog.pop();
+    renderLog();
+    live.tufts.visible = false;
+    toast(`${live.name}: ${dist.toFixed(1)} m in ${time.toFixed(1)} s`);
+  }
+  function renderLog() {
+    const el = $('#log');
+    if (!flightLog.length) { el.innerHTML = '<span class="h" style="grid-column:1/-1">No landings yet.</span>'; $('#logStats').textContent = ''; return; }
+    let h = '<span></span><span class="h">object</span><span class="h">dist</span><span class="h">time</span><span class="h">glide</span>';
+    for (const e of flightLog) h += `<span class="sw" style="background:${e.color}"></span><span class="name">${e.name}</span><span>${e.dist.toFixed(1)} m</span><span>${e.time.toFixed(1)} s</span><span>${e.glide.toFixed(1)} : 1</span>`;
+    el.innerHTML = h;
+    const last = flightLog[0]; $('#logStats').textContent = `${last.name} · ${last.dist.toFixed(1)} m · ${last.glide.toFixed(1)} : 1`;
+  }
+
+  // ------------------------------------------------------------------ buttons
+  $('#drop').addEventListener('click', drop);
+  $('#reset').addEventListener('click', () => { clearAll(); toast('Cleared'); });
+  const toggle = (id, key, onLabel) => { const b = $(id); b.addEventListener('click', () => { state[key] = !state[key]; b.classList.toggle('on', state[key]); b.setAttribute('aria-pressed', String(state[key])); if (onLabel) b.textContent = state[key] ? onLabel[1] : onLabel[0]; if (key === 'forces') bodies.forEach((l) => l.arrows.forEach((a) => a.visible = state.forces)); }); };
+  toggle('#pause', 'paused', ['Pause', 'Resume']); toggle('#slow', 'slow'); toggle('#forces', 'forces');
+  window.addEventListener('keydown', (e) => { if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); drop(); } });
+
+  // ------------------------------------------------------------------ main loop
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
+      renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+  }
+  const tmpV = new THREE.Vector3();
+  function updateVisuals() {
+    for (const live of bodies) {
+      const b = live.body;
+      live.mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
+      live.mesh.quaternion.set(b.q[0], b.q[1], b.q[2], b.q[3]);
+      // trail
+      const tg = live.trail.geometry, pa = tg.attributes.position, n = live.trail.userData.count;
+      if (n === 0 || tmpV.set(pa.getX(n - 1), pa.getY(n - 1), pa.getZ(n - 1)).distanceTo(live.mesh.position) > Math.max(0.004, b.ext * 0.08)) {
+        if (n < 6000) { pa.setXYZ(n, b.pos[0], b.pos[1], b.pos[2]); live.trail.userData.count = n + 1; tg.setDrawRange(0, n + 1); pa.needsUpdate = true; }
+      }
+      // tufts
+      if (b.out && state.tufts && !b.landed) {
+        const tp = live.tufts.geometry.attributes.position, tc = live.tufts.geometry.attributes.color;
+        const src = b.out.tufts, st = b.out.stall;
+        const g = new THREE.Color(T.good), r = new THREE.Color(T.bad), c = new THREE.Color();
+        for (let i = 0; i < b.subs.length; i++) {
+          tp.setXYZ(i * 2, src[i * 6] + b.pos[0], src[i * 6 + 1] + b.pos[1], src[i * 6 + 2] + b.pos[2]);
+          tp.setXYZ(i * 2 + 1, src[i * 6 + 3] + b.pos[0], src[i * 6 + 4] + b.pos[1], src[i * 6 + 5] + b.pos[2]);
+          c.copy(g).lerp(r, st[i]);
+          tc.setXYZ(i * 2, c.r, c.g, c.b); tc.setXYZ(i * 2 + 1, c.r, c.g, c.b);
+        }
+        tp.needsUpdate = true; tc.needsUpdate = true; live.tufts.visible = true;
+      } else live.tufts.visible = false;
+      // force arrows: lift ⟂ flow, drag ∥ flow, weight
+      if (state.forces && b.forces && !b.landed) {
+        const F = b.forces.F, va = b.forces.vair, V = A.len(va) || 1;
+        const fd = A.scale(va, 1 / V);
+        const par = A.scale(fd, A.dot(F, fd)), perp = A.sub(F, par);
+        const W = b.mass * A.G, L = b.ext * 1.3;
+        const setArrow = (ar, v) => { const m = A.len(v); ar.position.copy(live.mesh.position); if (m > 1e-6) { ar.setDirection(vec(A.scale(v, 1 / m))); ar.setLength(L * m / W, L * 0.18, L * 0.09); ar.visible = true; } else ar.visible = false; };
+        setArrow(live.arrows[0], perp); setArrow(live.arrows[1], par); setArrow(live.arrows[2], [0, -W, 0]);
+      } else live.arrows.forEach((a) => a.visible = false);
+    }
+  }
+  let last = performance.now();
+  function frame(now) {
+    resize();
+    const real = Math.min(0.05, (now - last) / 1000); last = now;
+    const dt = state.paused ? 0 : real * (state.slow ? 0.25 : 1);
+    if (dt > 0) {
+      for (const live of bodies) {
+        const b = live.body; if (b.landed) continue;
+        A.step(b, dt, wind, simTime, b.out);
+        const tel = A.telemetry(b, wind, simTime); live.maxV = Math.max(live.maxV, tel.V);
+        if (b.landed) onLand(live);
+      }
+      simTime += dt;
+    }
+    if (staged) staged.mesh.position.y = state.height + 0.01 * Math.sin(now * 0.002) * Math.min(1, state.height * 0.3);
+    updateVisuals();
+    updateCamera(real);
+    hudClock += real; if (hudClock > 0.1) { hudClock = 0; updateHUD(); }
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+
+  // ------------------------------------------------------------------ boot
+  buildChips(); buildDesign(); buildAir(); renderLog();
+  select('trainer');
+  $('#designPanel').open = window.innerWidth >= 900;
+  requestAnimationFrame(frame);
+  window.airfall = { state, cam, drop, select, clearAll, bodies, staged: () => staged };
+})();
+
+</script>
