@@ -376,7 +376,7 @@
     },
     mglider: {
       label: 'Trainer (mesh)', blurb: 'The trainer glider built as one solid mesh: slab wing and tail, fin, fuselage bar, nose block.',
-      size: 50, mass: 18, res: 0, airfoil: 0.85, ballast: 4,
+      size: 50, mass: 18, res: 0, airfoil: 0.85, ballast: 6,
       base: () => gliderMesh(Object.assign({}, O.GLIDER_PRESETS.trainer, { incidence: 2.5, tailInc: 0.5 }), 4),
       launch: { speed: 5, pitch: 2, roll: 0, spin: 0 }, viewDist: 1.5, color: 0xE9D9B4, glider: true,
     },

@@ -880,6 +880,8 @@
     let volS = 0;
     for (let i = 0; i < I.length; i += 3) { const a = I[i] * 3, b = I[i + 1] * 3, c = I[i + 2] * 3; volS += (P[a] * (P[b + 1] * P[c + 2] - P[b + 2] * P[c + 1]) - P[a + 1] * (P[b] * P[c + 2] - P[b + 2] * P[c]) + P[a + 2] * (P[b] * P[c + 1] - P[b + 1] * P[c])) / 6; }
     const flip = props.closed && volS < 0;
+    const idx = new Uint32Array(I.length);
+    for (let f = 0; f < nF; f++) { idx[f * 3] = I[f * 3]; idx[f * 3 + 1] = flip ? I[f * 3 + 2] : I[f * 3 + 1]; idx[f * 3 + 2] = flip ? I[f * 3 + 1] : I[f * 3 + 2]; }
     const cx = new Float64Array(nF), cy = new Float64Array(nF), cz = new Float64Array(nF);
     const nx = new Float64Array(nF), ny = new Float64Array(nF), nz = new Float64Array(nF), area = new Float64Array(nF);
     for (let f = 0; f < nF; f++) {
@@ -984,7 +986,7 @@
     const factor = props.closed ? 0.5 : 1;   // a closed solid's two skins share one plate's force
     return {
       name: spec.name || 'Model', spec, mass: totalMass, com, I: Iten, Iinv: m3inv(Iten), subs: [], spheres: [], points, panels: [], panelsC: [],
-      mesh: { n: nF, cx, cy, cz, nx, ny, nz, area, cluster, clusters, verts, closed: props.closed, factor, props, opts: o,
+      mesh: { n: nF, cx, cy, cz, nx, ny, nz, area, cluster, clusters, verts, idx, closed: props.closed, factor, props, opts: o,
         tmin: new Float64Array(clusters.length), tmax: new Float64Array(clusters.length), AR: new Float64Array(clusters.length), reatt: new Float64Array(clusters.length),
         tx: new Float64Array(clusters.length), ty: new Float64Array(clusters.length), tz: new Float64Array(clusters.length) },
       elemCount: nF, areaTotal: props.area * factor, ext, np: 0, meanChord: ext, liftArea: 0, staticMargin: null,
@@ -1011,12 +1013,17 @@
     const tufts = out && out.tufts, stallOut = out && out.stall;
     let Fx = 0, Fy = 0, Fz = 0, Tx = 0, Ty = 0, Tz = 0, lift = 0, drag = 0;
     const rot = (x, y, z) => [R[0] * x + R[1] * y + R[2] * z, R[3] * x + R[4] * y + R[5] * z, R[6] * x + R[7] * y + R[8] * z];
-    // body extent downstream along the COM flow direction (for the reattachment heuristic)
+    // rotate every vertex once; body extent downstream along the COM flow direction (reattachment heuristic)
+    const V0 = M.verts, nV = V0.length / 3;
+    const wv = M.wverts || (M.wverts = new Float64Array(V0.length));
     let bodyMax = -Infinity;
-    for (let f = 0; f < M.n; f++) {
-      const gx = R[0] * M.cx[f] + R[1] * M.cy[f] + R[2] * M.cz[f], gy = R[3] * M.cx[f] + R[4] * M.cy[f] + R[5] * M.cz[f], gz = R[6] * M.cx[f] + R[7] * M.cy[f] + R[8] * M.cz[f];
+    for (let i = 0; i < nV; i++) {
+      const x = V0[i * 3], y = V0[i * 3 + 1], z = V0[i * 3 + 2];
+      const gx = R[0] * x + R[1] * y + R[2] * z, gy = R[3] * x + R[4] * y + R[5] * z, gz = R[6] * x + R[7] * y + R[8] * z;
+      wv[i * 3] = gx; wv[i * 3 + 1] = gy; wv[i * 3 + 2] = gz;
       const pr = gx * fd[0] + gy * fd[1] + gz * fd[2]; if (pr > bodyMax) bodyMax = pr;
     }
+    const idx = M.idx;
     // pass 1: per cluster, in-plane flow direction and extents
     for (let k = 0; k < M.clusters.length; k++) {
       const C = M.clusters[k];
@@ -1034,18 +1041,21 @@
       }
       tx /= tl; ty /= tl; tz /= tl;
       const sx = nY * tz - nZ * ty, sy = nZ * tx - nX * tz, sz = nX * ty - nY * tx;
+      // exact region extents from the facets' vertices (resolution-independent)
       let tmin = Infinity, tmax = -Infinity, smin = Infinity, smax = -Infinity, cmax = -Infinity;
       const faces = C.faces;
       for (let j = 0; j < faces.length; j++) {
         const f = faces[j];
-        const gx = R[0] * M.cx[f] + R[1] * M.cy[f] + R[2] * M.cz[f], gy = R[3] * M.cx[f] + R[4] * M.cy[f] + R[5] * M.cz[f], gz = R[6] * M.cx[f] + R[7] * M.cy[f] + R[8] * M.cz[f];
-        const pt = gx * tx + gy * ty + gz * tz, ps = gx * sx + gy * sy + gz * sz;
-        if (pt < tmin) tmin = pt; if (pt > tmax) tmax = pt; if (ps < smin) smin = ps; if (ps > smax) smax = ps;
-        const pr = gx * fd[0] + gy * fd[1] + gz * fd[2]; if (pr > cmax) cmax = pr;
+        for (let e = 0; e < 3; e++) {
+          const vi = idx[f * 3 + e];
+          const gx = wv[vi * 3], gy = wv[vi * 3 + 1], gz = wv[vi * 3 + 2];
+          const pt = gx * tx + gy * ty + gz * tz, ps = gx * sx + gy * sy + gz * sz;
+          if (pt < tmin) tmin = pt; if (pt > tmax) tmax = pt; if (ps < smin) smin = ps; if (ps > smax) smax = ps;
+          const pr = gx * fd[0] + gy * fd[1] + gz * fd[2]; if (pr > cmax) cmax = pr;
+        }
       }
-      // pad by the typical facet size so a single facet still has an extent
-      const pad = Math.sqrt(C.area / faces.length) * 0.5;
-      tmin -= pad; tmax += pad; smin -= pad; smax += pad;
+      if (tmax - tmin < 1e-9) { tmin -= 1e-6; tmax += 1e-6; }
+      if (smax - smin < 1e-9) { smin -= 1e-6; smax += 1e-6; }
       M.tmin[k] = tmin; M.tmax[k] = tmax; M.tx[k] = tx; M.ty[k] = ty; M.tz[k] = tz;
       const L = (tmax - tmin) / 2, spanHalf = (smax - smin) / 2;
       // Reattachment: a bluff face with a long body behind it (a slab's leading edge, a fuselage
@@ -1084,11 +1094,26 @@
       const sinA = -nd, a = Math.abs(sinA), cosA = Math.sqrt(Math.max(0, 1 - a * a));
       const alphaDeg = Math.asin(Math.min(1, a)) / DEG;
       const k = M.cluster[f];
-      const pt = rx * M.tx[k] + ry * M.ty[k] + rz * M.tz[k];
-      const xi = clamp((pt - M.tmin[k]) / (M.tmax[k] - M.tmin[k] || 1e-9), 0, 1);
+      // chordwise interval [xi0, xi1] of this facet along the region's flow axis; the attached-flow
+      // weight 3(1-ξ)² is integrated exactly over it, so totals and moments do not depend on facet size
+      const ktx = M.tx[k], kty = M.ty[k], ktz = M.tz[k];
+      const i0 = idx[f * 3] * 3, i1 = idx[f * 3 + 1] * 3, i2 = idx[f * 3 + 2] * 3;
+      const p0 = wv[i0] * ktx + wv[i0 + 1] * kty + wv[i0 + 2] * ktz, p1 = wv[i1] * ktx + wv[i1 + 1] * kty + wv[i1 + 2] * ktz, p2 = wv[i2] * ktx + wv[i2 + 1] * kty + wv[i2 + 2] * ktz;
+      const inv = 1 / (M.tmax[k] - M.tmin[k]);
+      // area-weighted mean of the quadratic 3(1-ξ)² over the triangle: exact via its edge midpoints
+      const e0 = 1 - clamp((0.5 * (p0 + p1) - M.tmin[k]) * inv, 0, 1), e1 = 1 - clamp((0.5 * (p1 + p2) - M.tmin[k]) * inv, 0, 1), e2 = 1 - clamp((0.5 * (p2 + p0) - M.tmin[k]) * inv, 0, 1);
+      const w0 = e0 * e0, w1 = e1 * e1, w2 = e2 * e2, wAtt = w0 + w1 + w2;
+      // pressure-weighted point of action of the attached-flow force (edge midpoints weighted by w)
+      let ax_ = rx, ay_ = ry, az_ = rz;
+      if (wAtt > 1e-12) {
+        const iw = 0.5 / wAtt;
+        ax_ = iw * (w0 * (wv[i0] + wv[i1]) + w1 * (wv[i1] + wv[i2]) + w2 * (wv[i2] + wv[i0]));
+        ay_ = iw * (w0 * (wv[i0 + 1] + wv[i1 + 1]) + w1 * (wv[i1 + 1] + wv[i2 + 1]) + w2 * (wv[i2 + 1] + wv[i0 + 1]));
+        az_ = iw * (w0 * (wv[i0 + 2] + wv[i1 + 2]) + w1 * (wv[i1 + 2] + wv[i2 + 2]) + w2 * (wv[i2 + 2] + wv[i0 + 2]));
+      }
       const AR = M.AR[k];
       const st = smooth(o.stallDeg, o.stallDeg + 10, alphaDeg);
-      const weight = (1 - a) * 3 * (1 - xi) * (1 - xi) + a;
+      const weight = (1 - a) * wAtt + a;
       const a0 = 2 * Math.PI * AR / (AR + 2);
       const clAtt = a0 * sinA;
       const cnStall = o.cd90 * sinA;
@@ -1111,7 +1136,10 @@
       const gt = (o.cf + cdi) * qA;
       fx += ux * gt; fy += uy * gt; fz += uz * gt;
       Fx += fx; Fy += fy; Fz += fz;
-      Tx += ry * fz - rz * fy; Ty += rz * fx - rx * fz; Tz += rx * fy - ry * fx;
+      // point of action: attached part at the weighted point, separated part at the centroid
+      const bl = weight > 1e-12 ? ((1 - a) * wAtt) / weight : 0;
+      const px_ = rx + bl * (ax_ - rx), py_ = ry + bl * (ay_ - ry), pz_ = rz + bl * (az_ - rz);
+      Tx += py_ * fz - pz_ * fy; Ty += pz_ * fx - px_ * fz; Tz += px_ * fy - py_ * fx;
       const fPar = fx * fd[0] + fy * fd[1] + fz * fd[2];
       drag += fPar; lift += Math.sqrt(Math.max(0, fx * fx + fy * fy + fz * fz - fPar * fPar));
       if (tufts) {
@@ -1509,7 +1537,7 @@
     },
     mglider: {
       label: 'Trainer (mesh)', blurb: 'The trainer glider built as one solid mesh: slab wing and tail, fin, fuselage bar, nose block.',
-      size: 50, mass: 18, res: 0, airfoil: 0.85, ballast: 4,
+      size: 50, mass: 18, res: 0, airfoil: 0.85, ballast: 6,
       base: () => gliderMesh(Object.assign({}, O.GLIDER_PRESETS.trainer, { incidence: 2.5, tailInc: 0.5 }), 4),
       launch: { speed: 5, pitch: 2, roll: 0, spin: 0 }, viewDist: 1.5, color: 0xE9D9B4, glider: true,
     },
