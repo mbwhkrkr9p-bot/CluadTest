@@ -26,7 +26,8 @@
     { key: 'tailArea', label: 'Tailplane area', unit: '% wing', min: 0, max: 40, step: 1, scale: 0.01 },
     { key: 'tailArm', label: 'Tail arm', unit: 'cm', min: 5, max: 60, step: 1, scale: 0.01 },
     { key: 'tailInc', label: 'Tail incidence', unit: '°', min: -8, max: 6, step: 0.5, scale: 1 },
-    { key: 'elevator', label: 'Elevator (tail flap)', unit: '°', min: -25, max: 25, step: 1, scale: 1 },
+    { key: 'elevL', label: 'Left elevator half', unit: '°', min: -25, max: 25, step: 1, scale: 1 },
+    { key: 'elevR', label: 'Right elevator half', unit: '°', min: -25, max: 25, step: 1, scale: 1 },
     { key: 'finArea', label: 'Fin area', unit: '% wing', min: 0, max: 25, step: 1, scale: 0.01 },
     { key: 'nose', label: 'Nose weight', unit: 'g', min: 0, max: 40, step: 0.5, scale: 0.001 },
     { key: 'skin', label: 'Skin weight', unit: 'g/m²', min: 60, max: 600, step: 10, scale: 0.001 },
@@ -79,18 +80,20 @@
       const tA = wingArea * p.tailArea * 0.01;
       const tChord = Math.min(chord * 0.75, Math.sqrt(tA / 3));
       const tSpan = tA / tChord;
-      const e = p.elevator || 0;                 // + = trailing edge up (nose-up command)
-      // fixed front 60% of the tailplane + a hinged rear 40% (the elevator) rotated about the hinge line.
-      // Both pieces use the whole tailplane's aspect ratio so the split itself changes nothing at zero deflection.
+      // fixed front 60% of the tailplane + a hinged rear 40% split into left and right elevator halves,
+      // each rotated about the hinge line by its own deflection (+ = trailing edge up = nose-up command).
+      // All pieces use the whole tailplane's aspect ratio so the split itself changes nothing at zero deflection.
       const tAR = tSpan / tChord;
       const cFix = 0.6 * tChord, cFl = 0.4 * tChord;
       const le = tailX + tChord / 4;                  // tail leading edge (wing() puts the quarter chord at pos)
       panels.push(...wing({ span: tSpan, rootChord: cFix, tipChord: cFix, incidenceDeg: p.tailInc, AR: tAR,
         pos: [le - cFix / 4, 0, 0], strips: 2, subChord: 2, rho: skin, name: 'tail', suction: 0.7 }));
       const hinge = le - cFix;
-      const er = e * A.DEG;
-      panels.push(...wing({ span: tSpan, rootChord: cFl, tipChord: cFl, incidenceDeg: p.tailInc - e, AR: tAR,
-        pos: [hinge - (cFl / 4) * Math.cos(er), (cFl / 4) * Math.sin(er), 0], strips: 2, subChord: 2, rho: skin, name: 'elevator', suction: 0.7 }));
+      for (const [side, e] of [[1, p.elevR || 0], [-1, p.elevL || 0]]) {
+        const er = e * A.DEG;
+        panels.push(...wing({ span: tSpan, rootChord: cFl, tipChord: cFl, incidenceDeg: p.tailInc - e, AR: tAR, sides: [side],
+          pos: [hinge - (cFl / 4) * Math.cos(er), (cFl / 4) * Math.sin(er), 0], strips: 2, subChord: 2, rho: skin, name: 'elevator' + (side > 0 ? 'R' : 'L'), suction: 0.7 }));
+      }
     }
     if (p.finArea > 0) {
       const fA = wingArea * p.finArea * 0.01;
@@ -297,16 +300,18 @@
     const tailX = -p.tailArm * 0.01;
     if (p.tailArea > 0) {
       const tA = wingArea * p.tailArea * 0.01, tChord = Math.min(chord * 0.75, Math.sqrt(tA / 3)), tSpan = tA / tChord;
-      const e = p.elevator || 0;
-      if (e === 0) {
+      const eL = p.elevL || 0, eR = p.elevR || 0;
+      if (eL === 0 && eR === 0) {
         parts.push(transform(wingSlab({ span: tSpan * 100, chord: tChord * 100, taper: 1, sweep: 0, dihedral: 0, incidence: p.tailInc }, 0.003, Math.max(2, seg >> 1)), move([tailX, 0, 0])));
       } else {
         const cFix = 0.6 * tChord, cFl = 0.4 * tChord, le = tailX + tChord / 4, hinge = le - cFix;
         parts.push(transform(wingSlab({ span: tSpan * 100, chord: cFix * 100, taper: 1, sweep: 0, dihedral: 0, incidence: p.tailInc }, 0.003, Math.max(2, seg >> 1)), move([le - cFix / 4, 0, 0])));
-        // flap slab: leading edge at the origin, rotated nose-down by e (trailing edge up), then placed on the hinge
-        let flap = wingSlab({ span: tSpan * 100, chord: cFl * 100, taper: 1, sweep: 0, dihedral: 0, incidence: 0 }, 0.003, Math.max(2, seg >> 1));
-        flap = transform(flap, chain(move([-cFl / 4, 0, 0]), rotZ(-e + p.tailInc), move([hinge, 0, 0])));
-        parts.push(flap);
+        // each flap half: a slab of half span shifted to its side, leading edge at the origin, rotated nose-down by e, placed on the hinge
+        for (const [side, e] of [[1, eR], [-1, eL]]) {
+          let flap = wingSlab({ span: tSpan * 50, chord: cFl * 100, taper: 1, sweep: 0, dihedral: 0, incidence: 0 }, 0.003, Math.max(1, seg >> 2));
+          flap = transform(flap, chain(move([-cFl / 4, 0, side * tSpan / 4]), rotZ(-e + p.tailInc), move([hinge, 0, 0])));
+          parts.push(flap);
+        }
       }
     }
     if (p.finArea > 0) {

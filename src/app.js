@@ -159,7 +159,8 @@
         let color = baseColor;
         if (src.name === 'fin') color = 0x2E3644;
         if (src.name.startsWith('tail')) color = baseColor;
-        if (src.name.startsWith('elevator')) color = 0x8C6A3F;
+        if (src.name.startsWith('elevatorR')) color = 0x8C6A3F;
+        if (src.name.startsWith('elevatorL')) color = 0x6F7E9C;
         if (vis.leaf) color = i === 0 ? baseColor : 0x3f7a2f;
         const m = new THREE.Mesh(geo, mat(color));
         const basis = new THREE.Matrix4().makeBasis(vec(P.w), vec(P.u), vec(P.n));
@@ -320,7 +321,7 @@
 
   // ------------------------------------------------------------------ HUD
   const tele = $('#tele');
-  const chipDefs = [['V', 'airspeed', 'm/s'], ['α', 'angle of attack', '°'], ['sink', 'sink rate', 'm/s'], ['L/D', 'glide ratio', ''], ['spin', 'spin', 'rev/s'], ['alt', 'height', 'm'], ['dist', 'distance', 'm']];
+  const chipDefs = [['V', 'airspeed', 'm/s'], ['α', 'angle of attack', '°'], ['sink', 'sink rate', 'm/s'], ['L/D', 'glide ratio', ''], ['spin', 'spin', 'rev/s'], ['bank', 'bank', '°'], ['hdg', 'heading', '°'], ['alt', 'height', 'm'], ['dist', 'distance', 'm']];
   const chips = {};
   for (const [id, k, unit] of chipDefs) {
     const el = document.createElement('div'); el.className = 'chip'; el.innerHTML = `<div class="k">${k}</div><div class="v"><span>–</span><small>${unit}</small></div>`;
@@ -335,7 +336,10 @@
     const tel = A.telemetry(b, wind, simTime);
     setChip('V', tel.V.toFixed(1)); setChip('α', tel.alpha.toFixed(0)); setChip('sink', tel.sink.toFixed(1));
     setChip('L/D', tel.glide ? tel.glide.toFixed(1) : '–'); setChip('spin', tel.spin.toFixed(1));
+    setChip('bank', (tel.bank > 0 ? '+' : '') + tel.bank.toFixed(0)); setChip('hdg', (tel.heading > 0 ? '+' : '') + tel.heading.toFixed(0));
     setChip('alt', b.pos[1].toFixed(2)); setChip('dist', Math.hypot(b.pos[0], b.pos[2]).toFixed(1));
+    const flyer = live.body.spec.kind !== 'object';
+    chips['spin'].hidden = flyer; chips['bank'].hidden = !flyer; chips['hdg'].hidden = !flyer;
     chips['α'].classList.toggle('stall', Math.abs(tel.alpha) > 14 && tel.V > 0.5 && !b.landed);
   }
   const toastEl = $('#toast'); let toastTimer = 0;
@@ -414,9 +418,9 @@
     for (const [k, p] of Object.entries(O.GLIDER_PRESETS)) { const b = document.createElement('button'); b.textContent = p.label; b.addEventListener('click', () => select(k)); presets.appendChild(b); }
     designEl.appendChild(presets);
     const flaps = document.createElement('div'); flaps.className = 'design-presets flaps';
-    for (const [labelText, v] of [['Elevator up', 15], ['Neutral', 0], ['Elevator down', -15]]) {
-      const b = document.createElement('button'); b.textContent = labelText; b.dataset.e = v;
-      b.addEventListener('click', () => { state.design.elevator = v; state.selected = customKey(); syncDesignSliders(); restage(); });
+    for (const [labelText, l, r] of [['Both up', 15, 15], ['Neutral', 0, 0], ['Both down', -15, -15], ['Roll left', 6, -6], ['Roll right', -6, 6]]) {
+      const b = document.createElement('button'); b.textContent = labelText; b.dataset.l = l; b.dataset.r = r;
+      b.addEventListener('click', () => { state.design.elevL = l; state.design.elevR = r; state.selected = customKey(); syncDesignSliders(); restage(); });
       flaps.appendChild(b);
     }
     designEl.appendChild(flaps);
@@ -430,7 +434,7 @@
     syncDesignSliders();
   }
   const fmt = (P, v) => {
-    if (P.key === 'elevator') return +v === 0 ? 'neutral' : `${Math.abs(+v)}° ${+v > 0 ? 'up' : 'down'}`;
+    if (P.key === 'elevL' || P.key === 'elevR') return +v === 0 ? 'neutral' : `${Math.abs(+v)}° ${+v > 0 ? 'up' : 'down'}`;
     return `${(+v).toFixed(P.step < 1 ? (P.step < 0.1 ? 2 : 1) : 0)} ${P.unit}`.trim();
   };
   function customKey() {   // editing a preset makes it a custom design that keeps the preset's look
@@ -440,7 +444,7 @@
     return 'custom';
   }
   function syncDesignSliders() {
-    document.querySelectorAll('.flaps button').forEach((b) => b.classList.toggle('on', +b.dataset.e === (state.design.elevator || 0)));
+    document.querySelectorAll('.flaps button').forEach((b) => b.classList.toggle('on', +b.dataset.l === (state.design.elevL || 0) && +b.dataset.r === (state.design.elevR || 0)));
     for (const P of O.GLIDER_PARAMS) {
       const inp = document.getElementById('d_' + P.key); if (!inp) continue;
       const v = state.design[P.key] == null ? P.min : state.design[P.key];

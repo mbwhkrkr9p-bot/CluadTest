@@ -506,7 +506,10 @@
     const horiz = Math.hypot(body.vel[0], body.vel[2]);
     const sink = -body.vel[1];
     const glide = sink > 0.05 ? horiz / sink : null;
-    return { V, alpha, beta, horiz, sink, glide, fwd, up, spin: len(body.omega) / (2 * Math.PI) };
+    const right = qRot(body.q, [0, 0, 1]);
+    const bank = Math.atan2(-right[1], up[1]) / DEG;          // + = right wing down
+    const heading = Math.atan2(fwd[2], fwd[0]) / DEG;         // + = turned right of the launch direction
+    return { V, alpha, beta, horiz, sink, glide, fwd, up, right, bank, heading, spin: len(body.omega) / (2 * Math.PI) };
   }
 
   /**

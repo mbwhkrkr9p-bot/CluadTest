@@ -5,7 +5,7 @@ const neutral = A.trimAnalysis(A.buildBody(O.gliderSpec(base)));
 console.log('trainer neutral trim: a=%s V=%s L/D=%s', neutral.alpha.toFixed(1), neutral.V.toFixed(2), neutral.glide.toFixed(1));
 console.log('\nStatic: trim vs elevator deflection (+ = trailing edge up)');
 for (const e of [-25, -15, -8, -4, 0, 4, 8, 12, 15, 20, 25]) {
-  const b = A.buildBody(O.gliderSpec(Object.assign({}, base, { elevator: e })));
+  const b = A.buildBody(O.gliderSpec(Object.assign({}, base, { elevL: e, elevR: e })));
   const tr = A.trimAnalysis(b);
   // pitching moment at the neutral trim state, to show the flap's authority
   b.pos=[0,10,0]; b.q=A.qIdentity(); b.omega=[0,0,0]; b.vel=[neutral.V*Math.cos(neutral.alpha*A.DEG), -neutral.V*Math.sin(neutral.alpha*A.DEG), 0];
@@ -14,7 +14,7 @@ for (const e of [-25, -15, -8, -4, 0, 4, 8, 12, 15, 20, 25]) {
 }
 console.log('\nDynamic: launched level at the neutral trim speed from 3 m');
 for (const e of [15, 0, -15]) {
-  const b = A.buildBody(O.gliderSpec(Object.assign({}, base, { elevator: e })));
+  const b = A.buildBody(O.gliderSpec(Object.assign({}, base, { elevL: e, elevR: e })));
   b.pos=[0,3,0]; b.q=A.qIdentity(); b.vel=[neutral.V,0,0]; b.omega=[0,0,0];
   let t=0, dt=1/120, maxAlt=3, maxA=-99, minV=99, maxV=0, rows=[];
   while(!b.landed && t<40){ A.step(b,dt,wind0,t); t+=dt; const tel=A.telemetry(b,wind0,t); maxAlt=Math.max(maxAlt,b.pos[1]); maxA=Math.max(maxA,tel.alpha); minV=Math.min(minV,tel.V); maxV=Math.max(maxV,tel.V);
