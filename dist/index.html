@@ -349,7 +349,7 @@
     const out = [];
     const half = span / 2;
     const tanS = Math.tan(sweepDeg * DEG);
-    const AR = span * span / (span * (rootChord + tipChord) / 2);
+    const AR = o.AR || span * span / (span * (rootChord + tipChord) / 2);   // override when this is part of a larger surface
     for (const side of sides) {
       const dih = qAxisAngle([1, 0, 0], -side * dihedralDeg * DEG);   // rotate wing plane up at the tip
       for (let i = 0; i < strips; i++) {
@@ -1187,6 +1187,7 @@
     { key: 'tailArea', label: 'Tailplane area', unit: '% wing', min: 0, max: 40, step: 1, scale: 0.01 },
     { key: 'tailArm', label: 'Tail arm', unit: 'cm', min: 5, max: 60, step: 1, scale: 0.01 },
     { key: 'tailInc', label: 'Tail incidence', unit: '°', min: -8, max: 6, step: 0.5, scale: 1 },
+    { key: 'elevator', label: 'Elevator (tail flap)', unit: '°', min: -25, max: 25, step: 1, scale: 1 },
     { key: 'finArea', label: 'Fin area', unit: '% wing', min: 0, max: 25, step: 1, scale: 0.01 },
     { key: 'nose', label: 'Nose weight', unit: 'g', min: 0, max: 40, step: 0.5, scale: 0.001 },
     { key: 'skin', label: 'Skin weight', unit: 'g/m²', min: 60, max: 600, step: 10, scale: 0.001 },
@@ -1239,8 +1240,18 @@
       const tA = wingArea * p.tailArea * 0.01;
       const tChord = Math.min(chord * 0.75, Math.sqrt(tA / 3));
       const tSpan = tA / tChord;
-      panels.push(...wing({ span: tSpan, rootChord: tChord, tipChord: tChord, incidenceDeg: p.tailInc,
-        pos: [tailX, 0, 0], strips: 2, subChord: 2, rho: skin, name: 'tail', suction: 0.7 }));
+      const e = p.elevator || 0;                 // + = trailing edge up (nose-up command)
+      // fixed front 60% of the tailplane + a hinged rear 40% (the elevator) rotated about the hinge line.
+      // Both pieces use the whole tailplane's aspect ratio so the split itself changes nothing at zero deflection.
+      const tAR = tSpan / tChord;
+      const cFix = 0.6 * tChord, cFl = 0.4 * tChord;
+      const le = tailX + tChord / 4;                  // tail leading edge (wing() puts the quarter chord at pos)
+      panels.push(...wing({ span: tSpan, rootChord: cFix, tipChord: cFix, incidenceDeg: p.tailInc, AR: tAR,
+        pos: [le - cFix / 4, 0, 0], strips: 2, subChord: 2, rho: skin, name: 'tail', suction: 0.7 }));
+      const hinge = le - cFix;
+      const er = e * A.DEG;
+      panels.push(...wing({ span: tSpan, rootChord: cFl, tipChord: cFl, incidenceDeg: p.tailInc - e, AR: tAR,
+        pos: [hinge - (cFl / 4) * Math.cos(er), (cFl / 4) * Math.sin(er), 0], strips: 2, subChord: 2, rho: skin, name: 'elevator', suction: 0.7 }));
     }
     if (p.finArea > 0) {
       const fA = wingArea * p.finArea * 0.01;
@@ -1447,7 +1458,17 @@
     const tailX = -p.tailArm * 0.01;
     if (p.tailArea > 0) {
       const tA = wingArea * p.tailArea * 0.01, tChord = Math.min(chord * 0.75, Math.sqrt(tA / 3)), tSpan = tA / tChord;
-      parts.push(transform(wingSlab({ span: tSpan * 100, chord: tChord * 100, taper: 1, sweep: 0, dihedral: 0, incidence: p.tailInc }, 0.003, Math.max(2, seg >> 1)), move([tailX, 0, 0])));
+      const e = p.elevator || 0;
+      if (e === 0) {
+        parts.push(transform(wingSlab({ span: tSpan * 100, chord: tChord * 100, taper: 1, sweep: 0, dihedral: 0, incidence: p.tailInc }, 0.003, Math.max(2, seg >> 1)), move([tailX, 0, 0])));
+      } else {
+        const cFix = 0.6 * tChord, cFl = 0.4 * tChord, le = tailX + tChord / 4, hinge = le - cFix;
+        parts.push(transform(wingSlab({ span: tSpan * 100, chord: cFix * 100, taper: 1, sweep: 0, dihedral: 0, incidence: p.tailInc }, 0.003, Math.max(2, seg >> 1)), move([le - cFix / 4, 0, 0])));
+        // flap slab: leading edge at the origin, rotated nose-down by e (trailing edge up), then placed on the hinge
+        let flap = wingSlab({ span: tSpan * 100, chord: cFl * 100, taper: 1, sweep: 0, dihedral: 0, incidence: 0 }, 0.003, Math.max(2, seg >> 1));
+        flap = transform(flap, chain(move([-cFl / 4, 0, 0]), rotZ(-e + p.tailInc), move([hinge, 0, 0])));
+        parts.push(flap);
+      }
     }
     if (p.finArea > 0) {
       const fA = wingArea * p.finArea * 0.01, fChord = Math.sqrt(fA / 1.2), fH = fA / fChord;
@@ -1722,6 +1743,7 @@
         let color = baseColor;
         if (src.name === 'fin') color = 0x2E3644;
         if (src.name.startsWith('tail')) color = baseColor;
+        if (src.name.startsWith('elevator')) color = 0x8C6A3F;
         if (vis.leaf) color = i === 0 ? baseColor : 0x3f7a2f;
         const m = new THREE.Mesh(geo, mat(color));
         const basis = new THREE.Matrix4().makeBasis(vec(P.w), vec(P.u), vec(P.n));
@@ -1975,6 +1997,13 @@
     const presets = document.createElement('div'); presets.className = 'design-presets';
     for (const [k, p] of Object.entries(O.GLIDER_PRESETS)) { const b = document.createElement('button'); b.textContent = p.label; b.addEventListener('click', () => select(k)); presets.appendChild(b); }
     designEl.appendChild(presets);
+    const flaps = document.createElement('div'); flaps.className = 'design-presets flaps';
+    for (const [labelText, v] of [['Elevator up', 15], ['Neutral', 0], ['Elevator down', -15]]) {
+      const b = document.createElement('button'); b.textContent = labelText; b.dataset.e = v;
+      b.addEventListener('click', () => { state.design.elevator = v; state.selected = customKey(); syncDesignSliders(); restage(); });
+      flaps.appendChild(b);
+    }
+    designEl.appendChild(flaps);
     for (const P of O.GLIDER_PARAMS) {
       const w = document.createElement('div'); w.className = 'sl';
       w.innerHTML = `<label for="d_${P.key}">${P.label}</label><output id="o_${P.key}"></output><input type="range" id="d_${P.key}" min="${P.min}" max="${P.max}" step="${P.step}">`;
@@ -1984,7 +2013,10 @@
     }
     syncDesignSliders();
   }
-  const fmt = (P, v) => `${(+v).toFixed(P.step < 1 ? (P.step < 0.1 ? 2 : 1) : 0)} ${P.unit}`.trim();
+  const fmt = (P, v) => {
+    if (P.key === 'elevator') return +v === 0 ? 'neutral' : `${Math.abs(+v)}° ${+v > 0 ? 'up' : 'down'}`;
+    return `${(+v).toFixed(P.step < 1 ? (P.step < 0.1 ? 2 : 1) : 0)} ${P.unit}`.trim();
+  };
   function customKey() {   // editing a preset makes it a custom design that keeps the preset's look
     if (!O.GLIDER_PRESETS[state.selected]) return state.selected;
     const base = state.selected;
@@ -1992,6 +2024,7 @@
     return 'custom';
   }
   function syncDesignSliders() {
+    document.querySelectorAll('.flaps button').forEach((b) => b.classList.toggle('on', +b.dataset.e === (state.design.elevator || 0)));
     for (const P of O.GLIDER_PARAMS) {
       const inp = document.getElementById('d_' + P.key); if (!inp) continue;
       const v = state.design[P.key] == null ? P.min : state.design[P.key];

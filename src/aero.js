@@ -128,7 +128,7 @@
     const out = [];
     const half = span / 2;
     const tanS = Math.tan(sweepDeg * DEG);
-    const AR = span * span / (span * (rootChord + tipChord) / 2);
+    const AR = o.AR || span * span / (span * (rootChord + tipChord) / 2);   // override when this is part of a larger surface
     for (const side of sides) {
       const dih = qAxisAngle([1, 0, 0], -side * dihedralDeg * DEG);   // rotate wing plane up at the tip
       for (let i = 0; i < strips; i++) {

@@ -159,6 +159,7 @@
         let color = baseColor;
         if (src.name === 'fin') color = 0x2E3644;
         if (src.name.startsWith('tail')) color = baseColor;
+        if (src.name.startsWith('elevator')) color = 0x8C6A3F;
         if (vis.leaf) color = i === 0 ? baseColor : 0x3f7a2f;
         const m = new THREE.Mesh(geo, mat(color));
         const basis = new THREE.Matrix4().makeBasis(vec(P.w), vec(P.u), vec(P.n));
@@ -412,6 +413,13 @@
     const presets = document.createElement('div'); presets.className = 'design-presets';
     for (const [k, p] of Object.entries(O.GLIDER_PRESETS)) { const b = document.createElement('button'); b.textContent = p.label; b.addEventListener('click', () => select(k)); presets.appendChild(b); }
     designEl.appendChild(presets);
+    const flaps = document.createElement('div'); flaps.className = 'design-presets flaps';
+    for (const [labelText, v] of [['Elevator up', 15], ['Neutral', 0], ['Elevator down', -15]]) {
+      const b = document.createElement('button'); b.textContent = labelText; b.dataset.e = v;
+      b.addEventListener('click', () => { state.design.elevator = v; state.selected = customKey(); syncDesignSliders(); restage(); });
+      flaps.appendChild(b);
+    }
+    designEl.appendChild(flaps);
     for (const P of O.GLIDER_PARAMS) {
       const w = document.createElement('div'); w.className = 'sl';
       w.innerHTML = `<label for="d_${P.key}">${P.label}</label><output id="o_${P.key}"></output><input type="range" id="d_${P.key}" min="${P.min}" max="${P.max}" step="${P.step}">`;
@@ -421,7 +429,10 @@
     }
     syncDesignSliders();
   }
-  const fmt = (P, v) => `${(+v).toFixed(P.step < 1 ? (P.step < 0.1 ? 2 : 1) : 0)} ${P.unit}`.trim();
+  const fmt = (P, v) => {
+    if (P.key === 'elevator') return +v === 0 ? 'neutral' : `${Math.abs(+v)}° ${+v > 0 ? 'up' : 'down'}`;
+    return `${(+v).toFixed(P.step < 1 ? (P.step < 0.1 ? 2 : 1) : 0)} ${P.unit}`.trim();
+  };
   function customKey() {   // editing a preset makes it a custom design that keeps the preset's look
     if (!O.GLIDER_PRESETS[state.selected]) return state.selected;
     const base = state.selected;
@@ -429,6 +440,7 @@
     return 'custom';
   }
   function syncDesignSliders() {
+    document.querySelectorAll('.flaps button').forEach((b) => b.classList.toggle('on', +b.dataset.e === (state.design.elevator || 0)));
     for (const P of O.GLIDER_PARAMS) {
       const inp = document.getElementById('d_' + P.key); if (!inp) continue;
       const v = state.design[P.key] == null ? P.min : state.design[P.key];
