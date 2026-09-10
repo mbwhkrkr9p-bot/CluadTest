@@ -272,5 +272,6 @@
     const close = bg.every((v, i) => Math.abs(px[i] - v) <= 8);
     check('top-left pixel is the warm off-white background', close, `rgb(${px[0]}, ${px[1]}, ${px[2]})`);
   }
+  window.__api = { rig, ctx, THREE }; // for ad-hoc screenshots from the runner
   window.__harness = { done: true, results, violations, steps, failures: results.filter((r) => !r.ok).length };
 </script>

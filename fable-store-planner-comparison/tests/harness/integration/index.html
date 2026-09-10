@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Integration harness (no UI)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f4efe7; overflow: hidden; }
+  #viewport { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+  #labels { position: absolute; inset: 0; pointer-events: none; }
+  #labels .label { position: absolute; left: 0; top: 0; font: 12px system-ui; background: #fff; padding: 2px 6px; border-radius: 6px; white-space: nowrap; }
+</style>
+</head>
+<body>
+<canvas id="viewport"></canvas>
+<div id="labels"></div>
+<script type="module">
+  import { createStudio } from '../../../src/app/studio.js';
+  import { createManipulator } from '../../../src/app/manipulate.js';
+  import { createInput } from '../../../src/app/input.js';
+  import { createWorkspace } from '../../../src/core/state.js';
+
+  const store = {};
+  const fakeStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+  const canvas = document.getElementById('viewport');
+  const labelsEl = document.getElementById('labels');
+  const studio = createStudio({ canvas, labelsEl, workspace: createWorkspace('store'), storage: fakeStorage });
+  studio.setSize(window.innerWidth, window.innerHeight);
+  const manipulator = createManipulator(studio);
+  const palette = { isPlacing: () => false, updateGhost() {}, cancel() {}, placeAt() { return null; }, current() { return null; } };
+  const events = [];
+  const input = createInput(studio, {
+    canvas, manipulator, palette,
+    onTap: (hit) => {
+      events.push(['tap', hit.kind]);
+      if (hit.kind === 'entity') studio.select({ kind: 'entity', id: hit.id });
+      else if (hit.kind === 'wall') studio.select({ kind: 'wall', id: hit.wallId });
+      else if (hit.kind === 'floor') studio.select({ kind: 'floor' }, { focus: false });
+      else studio.select({ kind: 'none' });
+    },
+  });
+  window.__t = { studio, manipulator, input, events, storage: store, fakeStorage };
+  document.documentElement.classList.add('is-ready');
+</script>
+</body>
+</html>
