@@ -11,13 +11,23 @@ const TABS = [
   { id: 'doors', label: 'Doors' },
 ];
 
-const HUE_NAMES = ['Red', 'Orange', 'Amber', 'Yellow', 'Lime', 'Green', 'Teal', 'Cyan', 'Sky', 'Blue', 'Indigo', 'Violet', 'Magenta', 'Rose'];
+const HUE_RANGES = [
+  [12, 'Red'], [26, 'Rust'], [36, 'Orange'], [54, 'Amber'], [68, 'Yellow'], [85, 'Lime'], [150, 'Green'], [175, 'Teal'],
+  [195, 'Cyan'], [205, 'Sky'], [250, 'Blue'], [270, 'Indigo'], [290, 'Violet'], [320, 'Magenta'], [348, 'Rose'], [360, 'Red'],
+];
+/** Human-friendly name for a hex colour, used for the recent custom colour cards. */
 export function nameForColor(hex) {
   const { h, s, v } = hexToHsv(hex);
-  if (s < 0.12) return v > 0.85 ? 'Soft white' : v > 0.5 ? 'Warm grey' : 'Charcoal';
-  const name = HUE_NAMES[Math.round((h / 360) * HUE_NAMES.length) % HUE_NAMES.length];
-  const tone = v < 0.4 ? 'Deep ' : s < 0.35 ? 'Muted ' : v > 0.85 && s < 0.6 ? 'Light ' : '';
-  return `${tone}${name}`.trim();
+  if (s < 0.18 || v < 0.16) {
+    if (v > 0.85) return 'Soft white';
+    if (v > 0.55) return 'Warm grey';
+    if (v > 0.3) return 'Slate grey';
+    return 'Charcoal';
+  }
+  let name = (HUE_RANGES.find(([limit]) => h < limit) || HUE_RANGES[HUE_RANGES.length - 1])[1];
+  if (h >= 12 && h < 48 && v < 0.6) name = 'Brown'; // dark oranges read as browns
+  const tone = v < 0.4 ? 'Deep ' : s < 0.4 ? 'Muted ' : v > 0.85 && s < 0.55 ? 'Light ' : '';
+  return `${tone}${name}`;
 }
 
 export function createFinishPanel(studio, { palette, toasts }) {
