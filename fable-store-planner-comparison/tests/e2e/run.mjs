@@ -714,10 +714,9 @@ async function main() {
     await S(() => window.__studio.select({ kind: 'wall', id: 'w0' }));
     await page.waitForTimeout(150);
     assert(await S(() => window.__studio.studio.gizmos.hasWallFrame()), 'wall frame shown');
-    await page.keyboard.press('Escape');
-    assert(!(await S(() => window.__studio.studio.gizmos.hasWallFrame())), 'wall frame cleared');
-    // hex readout is fully visible inside the panel
+    // hex readout is fully visible inside the panel (wall stays selected so a later Escape steps back, not out of the mode)
     await page.locator('#finish-tabs .tab', { hasText: 'Walls' }).click();
+    await page.locator('#finish-body .seg button', { hasText: 'All walls' }).click();
     await page.locator('#finish-body .swatch', { hasText: 'Custom color' }).click();
     await page.waitForTimeout(150);
     const hex = await page.locator('#finish-body .color-wheel__hex').evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, right: el.getBoundingClientRect().right, panelRight: el.closest('#finish-body').getBoundingClientRect().right }));
@@ -729,9 +728,11 @@ async function main() {
     await page.mouse.move(wheel.x + wheel.width / 2, wheel.y + wheel.height / 2);
     await page.mouse.down();
     await page.mouse.move(wheel.x + wheel.width * 0.75, wheel.y + wheel.height * 0.4, { steps: 6 });
-    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape'); // steps the wall selection back, re-rendering the panel mid-scrub
     await page.mouse.up();
     await page.waitForTimeout(200);
+    assert(!(await S(() => window.__studio.studio.gizmos.hasWallFrame())), 'wall frame cleared');
+    assert(await page.locator('#finish-panel').isVisible(), 'still in finish mode');
     assert((await S(() => window.__studio.studio.undoLabel())) === 'Change colour', `one entry for the interrupted scrub (top: ${await S(() => window.__studio.studio.undoLabel())}, before: ${undoBefore})`);
     const colourAfter = (await state()).finishes.wallDefault.color;
     await page.keyboard.press('Control+z');
@@ -838,6 +839,7 @@ async function main() {
   await step('Regressions: wedged wall drops, resizes between openings, live HUD while dragging, rotation band outside footprint', async () => {
     await S(() => window.__studio.select({ kind: 'none' }));
     // right wall w1: exit door at u=4..8; a window at u=2 (0..4) leaves no room at the door
+    await S(() => { for (const e of window.__studio.getState().entities.filter((x) => x.anchor === 'wall' && x.parent === 'w1' && x.type !== 'door')) window.__studio.studio.removeEntity(e.id); });
     const winR = await S(() => window.__studio.studio.addWindow('picture', 'w1', 2));
     assert(winR && near(winR.position.u, 2), `window placed beside the door (u=${winR && winR.position.u})`);
     const wedged = await S(() => window.__studio.placeOnWall('slatwall-panel', 'w1', 6, 3));
