@@ -5,7 +5,7 @@ import * as G from '../core/geometry.js';
 import { clampWallEntity, floorObb, isOpening } from '../core/collisions.js';
 import { formatFeetInches } from './labels.js';
 
-const SNAP_TOLERANCE = 0.4; // ft, window snap-to-guide distance
+const SNAP_TOLERANCE = 0.5; // ft (6 in), window snap-to-guide distance
 
 export function createManipulator(studio) {
   const { picker, gizmos, labels, roomView } = studio;

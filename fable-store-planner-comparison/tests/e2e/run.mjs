@@ -82,6 +82,9 @@ async function main() {
   const S = (fn, ...args) => page.evaluate(fn, ...args);
   const state = () => S(() => JSON.parse(JSON.stringify(window.__studio.getState())));
   const canvasBox = async () => page.locator('#viewport').boundingBox();
+  // wait until camera / fade animations have settled so projected points are stable
+  const settle = async () => { await page.waitForTimeout(80); await page.waitForFunction(() => !window.__studio.studio.isAnimating(), null, { timeout: 5000 }).catch(() => {}); };
+  const badge = async () => (await page.locator('#workspace-type').innerText()).trim().toLowerCase();
 
   // ---------------------------------------------------------------- load
   await step('Store template loads (40 × 28, 9 ft walls, entrance + exit)', async () => {
@@ -98,7 +101,7 @@ async function main() {
   });
 
   await step('Header shows type, save status and wall height', async () => {
-    assert((await page.locator('#workspace-type').innerText()).trim() === 'Store', 'badge');
+    assert((await badge()) === 'store', 'badge');
     assert((await page.locator('#wall-height').inputValue()) === '9', 'wall height input');
     const status = (await page.locator('#save-status').innerText()).trim();
     assert(/Saved|Saving/.test(status), `status=${status}`);
@@ -142,7 +145,8 @@ async function main() {
     const d1 = await S(() => window.__studio.rig.distance);
     assert(d1 < d0, `zoom in ${d0} -> ${d1}`);
     await page.keyboard.press('r');
-    await page.waitForTimeout(900);
+    await page.waitForTimeout(300);
+    await settle();
     const home = await S(() => window.__studio.rig.distance);
     assert(near(home, d0, 0.5), `home restored distance ${home} vs ${d0}`);
   });
@@ -190,6 +194,7 @@ async function main() {
 
   // ---------------------------------------------------------------- placement
   await step('Tap a card, then tap the floor to place a fixture', async () => {
+    await settle();
     await page.locator('.kit-card[data-def="display-table"]').click();
     await page.waitForTimeout(150);
     const p = await S(() => window.__studio.project(-8, 0, 2));
@@ -206,6 +211,8 @@ async function main() {
   });
 
   await step('Drag a card into the room to place a fixture', async () => {
+    await settle();
+    await page.locator('.kit-card[data-def="dump-bin"]').scrollIntoViewIfNeeded();
     const card = await page.locator('.kit-card[data-def="dump-bin"]').boundingBox();
     const p = await S(() => window.__studio.project(6, 0, -4));
     await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
@@ -224,6 +231,7 @@ async function main() {
   });
 
   await step('Dragging a card over a wall shows an invalid state for floor fixtures', async () => {
+    await page.locator('.kit-card[data-def="mannequin"]').scrollIntoViewIfNeeded();
     const card = await page.locator('.kit-card[data-def="mannequin"]').boundingBox();
     const p = await S(() => window.__studio.project(0, 5, -14));
     await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
@@ -245,6 +253,7 @@ async function main() {
   // ---------------------------------------------------------------- direct manipulation
   await step('Direct drag moves a floor fixture (no parent selection needed) and stays inside the room', async () => {
     await S(() => window.__studio.select({ kind: 'none' }));
+    await settle();
     const ws0 = await state();
     const table = ws0.entities.find((e) => e.type === 'display-table');
     const p = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, e.height * 0.92, e.position.z); }, table.id);
@@ -267,7 +276,8 @@ async function main() {
     const ws0 = await state();
     const bin = ws0.entities.find((e) => e.type === 'dump-bin');
     await S((id) => window.__studio.select({ kind: 'entity', id }), bin.id);
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(200);
+    await settle();
     const r = await S(() => window.__studio.studio.gizmos.getRotationRadius());
     assert(r > 0, 'rotation control visible');
     const handleR = r + 0.75;
@@ -463,6 +473,7 @@ async function main() {
     await page.locator('#finish-body .seg button', { hasText: 'All walls' }).click();
     await page.locator('#finish-body .swatch', { hasText: 'Custom color' }).click();
     await page.waitForTimeout(200);
+    await page.locator('#finish-body .color-wheel__canvas').scrollIntoViewIfNeeded();
     const wheel = await page.locator('#finish-body .color-wheel__canvas').boundingBox();
     assert(wheel, 'wheel rendered');
     const undoBefore = await S(() => window.__studio.studio.canUndo());
@@ -527,7 +538,7 @@ async function main() {
       const w = window.__studio.studio.getWall(e.parent);
       return window.__studio.project(w.start.x + w.dir.x * e.position.u + w.normal.x * 0.15, e.position.v + e.height / 2, w.start.z + w.dir.z * e.position.u + w.normal.z * 0.15);
     }, second.id);
-    const t2 = await S(([u, v, h]) => { const w = window.__studio.studio.getWall('w0'); return window.__studio.project(w.start.x + w.dir.x * u, v + h / 2 + 0.3, w.start.z + w.dir.z * u); }, [10, sill, second.height]);
+    const t2 = await S(([u, v, h]) => { const w = window.__studio.studio.getWall('w0'); return window.__studio.project(w.start.x + w.dir.x * u, v + h / 2 + 0.2, w.start.z + w.dir.z * u); }, [10, sill, second.height]);
     await page.mouse.move(q.x, q.y);
     await page.mouse.down();
     await page.mouse.move(q.x, q.y - 6, { steps: 2 });
@@ -694,7 +705,7 @@ async function main() {
     assert(near(ws.room.wallHeight, 24), '24 ft walls');
     const doors = ws.entities.filter((e) => e.type === 'door');
     assert(doors.some((d) => d.meta.role === 'entrance' && near(d.width, 4)) && doors.some((d) => d.meta.role === 'exit' && near(d.width, 6)), 'door widths');
-    assert((await page.locator('#workspace-type').innerText()).trim() === 'Warehouse', 'badge');
+    assert((await badge()) === 'warehouse', 'badge');
     const cards = await page.locator('#kit-cards .kit-card').evaluateAll((els) => els.map((e) => e.dataset.def));
     assert(cards.includes('pallet-rack') && cards.includes('forklift') && !cards.includes('mannequin'), `warehouse cards ${cards}`);
     let info = await S(() => window.__studio.game());

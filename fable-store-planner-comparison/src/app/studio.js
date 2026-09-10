@@ -70,6 +70,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
   let rafId = 0;
   let lastTime = 0;
   let renderPending = false;
+  let animating = false;
   function requestRender() {
     renderPending = true;
     if (!rafId) rafId = requestAnimationFrame(tick);
@@ -85,7 +86,8 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     sceneCtx.render();
     labels.update();
     renderPending = false;
-    if (cameraMoving || fading) rafId = requestAnimationFrame(tick);
+    animating = cameraMoving || fading;
+    if (animating) rafId = requestAnimationFrame(tick);
     else lastTime = 0;
   }
   rig.onChange(() => { cutaway.update(); emit('camera'); });
@@ -430,8 +432,9 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     if (!e) return false;
     const def = getDef(e.type);
     const parentSel = e.anchor === 'floor' ? { kind: 'floor' } : { kind: 'wall', id: e.parent };
+    const wasSelected = selection.kind === 'entity' && selection.id === id;
     const ok = commit(`Remove ${def.name}`, (w) => State.removeEntity(w, id));
-    if (ok && selection.kind === 'entity' && selection.id === id) select(parentSel, { focus: false });
+    if (ok && wasSelected) select(parentSel, { focus: false });
     return ok;
   }
 
@@ -771,7 +774,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     setMode, getMode: () => mode, home, focusPoint, startReview, cancelReview, isReviewing: () => reviewActive,
     // scene access
     sceneCtx, camera, rig, roomView, gizmos, entityViews, picker, labels, cutaway,
-    requestRender, setSize, project, flushSave, dispose,
+    requestRender, setSize, project, flushSave, dispose, isAnimating: () => animating,
     collisions: () => collisionReport, game: () => gameInfo,
     on, emit,
     reducedMotion,
