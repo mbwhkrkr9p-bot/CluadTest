@@ -331,7 +331,7 @@ function tubGeometry(topHW, topHD, botHW, botHD, y0, y1, t) {
   return geo;
 }
 
-/** Open-top dump bin: dark plinth, tapered thick-walled tub, rolled rim, heap of goods inside. */
+/** Open-top dump bin: dark plinth, tapered thick-walled tub, rolled rim (empty, no merchandise). */
 function buildDumpBin(entity, def) {
   const g = newGroup(entity);
   const { w, h, d } = dims(entity, def);
@@ -346,27 +346,9 @@ function buildDumpBin(entity, def) {
     g.add(rodX(w, rimR, shell, 0, bodyTop, s * topHD, 8));
     g.add(rodZ(d, rimR, shell, s * topHW, bodyTop, 0, 8));
   }
-  // Loose merchandise: a fill level plus a few tumbled boxes and balls in three colours.
-  const fillT = 0.55, fillY = baseH + (bodyTop - baseH) * fillT;
-  const fillHW = topHW * (taper + (1 - taper) * fillT) - wallT, fillHD = topHD * (taper + (1 - taper) * fillT) - wallT;
-  const goods = [mat(C.sage, { roughness: 1 }), mat(C.amber, { roughness: 0.9 }), mat(C.cream, { roughness: 1 })];
-  g.add(floorPlane(fillHW * 2, fillHD * 2, goods[0], 0, fillY, 0));
-  const items = [
-    [-0.4, -0.3, 0.65, 0.3], [0.4, -0.4, 0.55, 1.1], [0.05, 0.45, 0.6, 0.7], [-0.5, 0.4, 0.5, 1.9], [0.55, 0.1, 0.5, 2.4],
-  ];
-  const itemS = Math.min(fillHW, fillHD, (h - fillY) * 0.9);
-  items.forEach(([fx, fz, size, yaw], i) => {
-    const s = size * itemS;
-    if (i % 2 === 0) {
-      const b = box(s, s * 0.7, s * 0.85, goods[(i + 1) % 3], fx * fillHW, fillY, fz * fillHD);
-      b.rotation.y = yaw;
-      g.add(b);
-    } else {
-      const ball = pickable(new THREE.Mesh(new THREE.SphereGeometry(s * 0.45, 12, 8), goods[(i + 1) % 3]));
-      ball.position.set(fx * fillHW, fillY + s * 0.45, fz * fillHD);
-      g.add(ball);
-    }
-  });
+  // Empty tub: a dark inner bottom gives the opening depth without any merchandise props.
+  const innerHW = topHW * taper - wallT, innerHD = topHD * taper - wallT;
+  g.add(floorPlane(innerHW * 2, innerHD * 2, mat(C.charcoal, { roughness: 0.95 }), 0, baseH + 0.02, 0));
   return g;
 }
 

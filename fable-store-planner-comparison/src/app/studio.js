@@ -426,7 +426,14 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     const entity = defaultEntityFor(def, { ...extra, parent: wallId, position: { u, v: v ?? def.defaultV } });
     if (entity.width > frame.length) return null;
     const desired = { u: G.snap(u, SNAP_WALL), v: G.snap(entity.position.v, SNAP_WALL) };
+    entity.position = { ...desired };
     entity.position = clampWallEntity(ws, entity, desired);
+    if (!clearOfOpenings(entity, entity.position)) {
+      // wedged between openings / off the wall: fall back to the nearest clear span, or refuse
+      const spot = freeWallSpot(entity, desired);
+      if (!spot || !clearOfOpenings(entity, spot)) return null;
+      entity.position = spot;
+    }
     let placed = null;
     commit(`Place ${def.name}`, (w) => { placed = State.addEntity(w, entity); });
     if (placed) select({ kind: 'entity', id: placed.id }, { focus: false });
@@ -496,6 +503,11 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
       const frame = getWall(e.parent);
       if (!frame || next.width > frame.length + 1e-6 || next.height > ws.room.wallHeight + 1e-6) return false;
       next.position = clampWallEntity(ws, next, { u: e.position.u, v: e.position.v });
+      if (!clearOfOpenings(next, next.position)) {
+        const spot = freeWallSpot(next, { u: e.position.u, v: e.position.v });
+        if (!spot || !clearOfOpenings(next, spot)) return false; // the new size cannot sit clear of the openings
+        next.position = spot;
+      }
     }
     return commit('Resize', (w) => {
       const t = State.getEntity(w, id);
@@ -513,6 +525,17 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     const ok = commit(`Remove ${def.name}`, (w) => State.removeEntity(w, id));
     if (ok && wasSelected) select(parentSel, { focus: false });
     return ok;
+  }
+
+  /** True when a wall entity at {u, v} lies inside its wall and clear of every door/window opening. */
+  function clearOfOpenings(entity, pos) {
+    const frame = getWall(entity.parent);
+    if (!frame) return false;
+    const r = { u0: pos.u - entity.width / 2, u1: pos.u + entity.width / 2, v0: pos.v, v1: pos.v + entity.height };
+    if (r.u0 < -1e-6 || r.u1 > frame.length + 1e-6 || r.v0 < -1e-6 || r.v1 > ws.room.wallHeight + 1e-6) return false;
+    if (entity.type === 'door') return true;
+    return !ws.entities.some((o) => o.id !== entity.id && o.anchor === 'wall' && o.parent === entity.parent && isOpening(o) &&
+      G.rectOverlap(r, { u0: o.position.u - o.width / 2, u1: o.position.u + o.width / 2, v0: o.position.v, v1: o.position.v + o.height }));
   }
 
   /**
@@ -599,6 +622,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
       gizmos.updateRotation({ ...e.position, width: e.width, depth: e.depth, rotation: e.rotation });
     }
     updateCollisions();
+    updateGame(); // keeps the HUD's overlap badge and "Clear the overlap" objective live while dragging
     requestRender();
   }
 
@@ -700,6 +724,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
       if (plan.name) w.name = String(plan.name).slice(0, 60);
       const polygon = G.normalizePolygon(plan.polygon);
       const wallIds = polygon.map((_, i) => `w${i}`);
+      remapWallAttachments(w, polygon, wallIds);
       State.setRoom(w, { polygon, wallHeight: plan.wallHeight ?? w.room.wallHeight, wallIds });
       if (plan.doors) {
         const keep = new Set();
@@ -729,6 +754,50 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
         if (pos) e.position = pos;
       }
     });
+  }
+
+  /**
+   * Before the outline changes, move every wall attachment (fixtures, windows, doors, per-wall finishes)
+   * to the NEW edge that physically carries its old world position, so a rebuilt room keeps things where
+   * they were instead of following edge indices. Attachments whose wall segment vanished are dropped.
+   */
+  function remapWallAttachments(w, polygon, wallIds) {
+    const oldFrames = State.getWallFrames(w);
+    const newFrames = G.wallFrames(polygon);
+    const sameLine = (nf, of) => Math.abs(nf.dir.x * of.dir.x + nf.dir.z * of.dir.z) > 0.999 &&
+      Math.abs((nf.start.x - of.start.x) * of.normal.x + (nf.start.z - of.start.z) * of.normal.z) < 1e-4;
+    const findNew = (of, u) => {
+      const world = G.wallLocalToWorld(of, u, 0);
+      let best = null;
+      for (let i = 0; i < newFrames.length; i++) {
+        const nf = newFrames[i];
+        if (!sameLine(nf, of) || nf.normal.x * of.normal.x + nf.normal.z * of.normal.z < 0.999) continue;
+        const local = G.worldToWallLocal(nf, world);
+        const inside = local.u >= -1e-6 && local.u <= nf.length + 1e-6;
+        const dist = inside ? 0 : Math.min(Math.abs(local.u), Math.abs(local.u - nf.length));
+        if (!best || dist < best.dist) best = { index: i, u: G.clamp(local.u, 0, nf.length), dist };
+      }
+      return best && best.dist < 1e-6 ? best : null;
+    };
+    const kept = [];
+    for (const e of w.entities) {
+      if (e.anchor !== 'wall') { kept.push(e); continue; }
+      const of = oldFrames.find((f) => f.id === e.parent);
+      const m = of ? findNew(of, e.position.u) : null;
+      if (!m) { if (e.type === 'door') kept.push(e); continue; } // doors are re-specified by the plan below
+      e.parent = wallIds[m.index];
+      e.position.u = m.u;
+      kept.push(e);
+    }
+    w.entities = kept;
+    const overrides = w.finishes.wallOverrides || {};
+    const remapped = {};
+    for (const [id, finish] of Object.entries(overrides)) {
+      const of = oldFrames.find((f) => f.id === id);
+      const m = of ? findNew(of, of.length / 2) : null;
+      if (m) remapped[wallIds[m.index]] = finish;
+    }
+    w.finishes.wallOverrides = remapped;
   }
 
   function renameWorkspace(name) {

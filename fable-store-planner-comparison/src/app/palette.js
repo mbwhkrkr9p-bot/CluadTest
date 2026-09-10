@@ -72,12 +72,17 @@ export function createPalette(studio, { canvas, ghostEl, ghostCanvas, ghostLabel
           entity.parent = hit.wallId;
           const v = placing.fixedV !== undefined ? placing.fixedV : G.snap(G.clamp(hit.v - entity.height / 2, 0, ws.room.wallHeight - entity.height), studio.SNAP_WALL);
           const desired = { u: G.snap(hit.u, studio.SNAP_WALL), v };
+          entity.position = { ...desired };
           const pos = clampWallEntity(ws, entity, desired);
           entity.position = pos;
           const rect2 = { u0: pos.u - entity.width / 2, u1: pos.u + entity.width / 2, v0: pos.v, v1: pos.v + entity.height };
+          const onWall = rect2.u0 >= -1e-6 && rect2.u1 <= frame.length + 1e-6 && rect2.v0 >= -1e-6 && rect2.v1 <= ws.room.wallHeight + 1e-6;
+          const acrossOpening = ws.entities.some((o) => o.anchor === 'wall' && o.parent === hit.wallId && (o.type === 'door' || o.type === 'window') &&
+            G.rectOverlap(rect2, { u0: o.position.u - o.width / 2, u1: o.position.u + o.width / 2, v0: o.position.v, v1: o.position.v + o.height }));
           const overlaps = ws.entities.some((o) => o.anchor === 'wall' && o.parent === hit.wallId &&
             G.rectOverlap(rect2, { u0: o.position.u - o.width / 2, u1: o.position.u + o.width / 2, v0: o.position.v, v1: o.position.v + o.height }));
-          target = { valid: true, kind: 'wall', wallId: hit.wallId, position: pos, overlaps };
+          if (onWall && !acrossOpening) target = { valid: true, kind: 'wall', wallId: hit.wallId, position: pos, overlaps };
+          else target = { valid: false, kind: 'wall-blocked', wallId: hit.wallId };
         }
       }
     }
@@ -85,6 +90,7 @@ export function createPalette(studio, { canvas, ghostEl, ghostCanvas, ghostLabel
     clearSurfaceHighlight();
     if (target.kind === 'floor') { roomView.setFloorHighlight('target-valid'); floorHighlighted = true; }
     else if (target.kind === 'wall') { roomView.setWallHighlight(target.wallId, 'target-valid'); highlightedWall = target.wallId; }
+    else if (target.kind === 'wall-blocked') { roomView.setWallHighlight(target.wallId, 'target-invalid'); highlightedWall = target.wallId; }
     else if (overCanvas) {
       const hit = picker.surfaceAt(clientX, clientY);
       if (hit.kind === 'wall' && def.anchor === 'floor') { roomView.setWallHighlight(hit.wallId, 'target-invalid'); highlightedWall = hit.wallId; }
@@ -102,7 +108,8 @@ export function createPalette(studio, { canvas, ghostEl, ghostCanvas, ghostLabel
       setDomGhost(true, target.overlaps ? 'Drop to place (overlaps)' : 'Drop to place');
     } else {
       gizmos.hideGhost();
-      setDomGhost(false, overCanvas ? (def.anchor === 'wall' ? 'Needs a wall' : 'Needs the floor') : 'Move over the room');
+      const why = target.kind === 'wall-blocked' ? 'No room beside the opening' : def.anchor === 'wall' ? 'Needs a wall' : 'Needs the floor';
+      setDomGhost(false, overCanvas ? why : 'Move over the room');
     }
     if (ghostEl && placing.source === 'drag') {
       ghostEl.style.transform = `translate(${clientX + 18}px, ${clientY + 18}px)`;

@@ -44,6 +44,21 @@ export function createFloorPlanDialog(studio, { toasts }) {
     preview: $('fp-preview'), apply: $('fp-apply'), cancel: $('fp-cancel'),
   };
   let customPolygon = null; // used when the current room is neither a rectangle nor an L
+  // World positions of the doors when the dialog opened, so a changed outline keeps them on the same physical wall
+  let doorWorld = { entrance: null, exit: null };
+  let manualWall = { entrance: false, exit: false };
+  let lastPolyKey = '';
+
+  /** Index of the new-outline wall carrying a world point (same line, within the segment), or -1. */
+  function wallIndexAt(frames, pt) {
+    for (const fr of frames) {
+      const rel = { x: pt.x - fr.start.x, z: pt.z - fr.start.z };
+      const off = Math.abs(rel.x * fr.normal.x + rel.z * fr.normal.z);
+      const u = rel.x * fr.dir.x + rel.z * fr.dir.z;
+      if (off < 1e-4 && u >= -1e-6 && u <= fr.length + 1e-6) return { index: fr.index, u };
+    }
+    return null;
+  }
 
   function num(input, fallback) { const v = Number(input.value); return Number.isFinite(v) ? v : fallback; }
 
@@ -93,6 +108,16 @@ export function createFloorPlanDialog(studio, { toasts }) {
     const frames = wallFrames(poly);
     fillWallOptions(f.entranceWall, frames);
     fillWallOptions(f.exitWall, frames);
+    const polyKey = JSON.stringify(poly);
+    if (polyKey !== lastPolyKey) {
+      lastPolyKey = polyKey;
+      // the outline changed: re-anchor each door to the wall that now carries its original world position
+      for (const [role, sel, uInput] of [['entrance', f.entranceWall, f.entranceU], ['exit', f.exitWall, f.exitU]]) {
+        if (manualWall[role] || !doorWorld[role]) continue;
+        const hit = wallIndexAt(frames, doorWorld[role]);
+        if (hit) { sel.value = `w${hit.index}`; uInput.value = String(Math.round(hit.u * 2) / 2); }
+      }
+    }
     const doors = doorSpecs(frames);
     const ctx = f.preview.getContext('2d');
     const W = f.preview.width, H = f.preview.height;
@@ -175,6 +200,10 @@ export function createFloorPlanDialog(studio, { toasts }) {
     const frames = wallFrames(poly);
     const entrance = ws.entities.find((e) => e.type === 'door' && e.meta?.role === 'entrance');
     const exit = ws.entities.find((e) => e.type === 'door' && e.meta?.role === 'exit');
+    const worldOf = (door) => { const fr = door && studio.getWall(door.parent); return fr ? { x: fr.start.x + fr.dir.x * door.position.u, z: fr.start.z + fr.dir.z * door.position.u } : null; };
+    doorWorld = { entrance: worldOf(entrance), exit: worldOf(exit) };
+    manualWall = { entrance: false, exit: false };
+    lastPolyKey = JSON.stringify(poly);
     fillWallOptions(f.entranceWall, frames, entrance ? entrance.parent : 'w2');
     fillWallOptions(f.exitWall, frames, exit ? exit.parent : 'w1');
     f.entranceU.value = String(entrance ? entrance.position.u : 20);
@@ -209,6 +238,8 @@ export function createFloorPlanDialog(studio, { toasts }) {
     el.addEventListener('input', drawPreview);
     el.addEventListener('change', drawPreview);
   }
+  f.entranceWall.addEventListener('change', () => { manualWall.entrance = true; });
+  f.exitWall.addEventListener('change', () => { manualWall.exit = true; });
   form.addEventListener('submit', apply);
   f.cancel.addEventListener('click', () => dialog.close());
   dialog.addEventListener('cancel', (e) => { e.preventDefault(); dialog.close(); });

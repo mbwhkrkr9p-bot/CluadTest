@@ -99,7 +99,7 @@ export function createGizmos(scene) {
   function buildTouchTarget() {
     if (touchTarget) { rotation.remove(touchTarget); disposeObject(touchTarget); touchTarget = null; }
     const center = Math.PI / 2;
-    const inner = Math.max(0.2, handleRadius - touchBand);
+    const inner = Math.max(rotationRadius + 0.05, handleRadius - touchBand); // never inside the footprint ring
     const sector = new THREE.RingGeometry(inner, handleRadius + touchBand, 24, 1, center - handleSpan - 0.25, handleSpan * 2 + 0.5);
     touchTarget = new THREE.Mesh(sector, flatMaterial(AMBER, 0.0));
     touchTarget.rotation.x = -Math.PI / 2;

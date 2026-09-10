@@ -835,8 +835,61 @@ async function main() {
     await settle();
   });
 
+  await step('Regressions: wedged wall drops, resizes between openings, live HUD while dragging, rotation band outside footprint', async () => {
+    await S(() => window.__studio.select({ kind: 'none' }));
+    // right wall w1: exit door at u=4..8; a window at u=2 (0..4) leaves no room at the door
+    const winR = await S(() => window.__studio.studio.addWindow('picture', 'w1', 2));
+    assert(winR && near(winR.position.u, 2), `window placed beside the door (u=${winR && winR.position.u})`);
+    const wedged = await S(() => window.__studio.placeOnWall('slatwall-panel', 'w1', 6, 3));
+    const openings = (await state()).entities.filter((e) => e.anchor === 'wall' && e.parent === 'w1' && (e.type === 'door' || e.type === 'window'));
+    const clear = (e) => openings.every((o) => !(e.position.u - e.width / 2 < o.position.u + o.width / 2 && e.position.u + e.width / 2 > o.position.u - o.width / 2 && e.position.v < o.position.v + o.height && e.position.v + e.height > o.position.v));
+    assert(!wedged || (clear(wedged) && wedged.position.u - wedged.width / 2 >= 0), `panel refused or placed clear of both openings (u=${wedged && wedged.position.u})`);
+    if (wedged) await S((id) => window.__studio.studio.removeEntity(id), wedged.id);
+    await S((id) => window.__studio.studio.removeEntity(id), winR.id);
+    // back wall: pegboard between two windows cannot grow across them
+    const w1 = await S(() => window.__studio.studio.addWindow('picture', 'w0', 5));
+    const w2 = await S(() => window.__studio.studio.addWindow('picture', 'w0', 16));
+    const peg = await S(() => window.__studio.placeOnWall('pegboard-panel', 'w0', 10, 1));
+    await S((id) => window.__studio.studio.resizeEntity(id, { width: 8 }), peg.id);
+    const pegNow = (await state()).entities.find((e) => e.id === peg.id);
+    const wins = (await state()).entities.filter((e) => e.id === w1.id || e.id === w2.id);
+    const pegClear = wins.every((o) => !(pegNow.position.u - pegNow.width / 2 < o.position.u + o.width / 2 && pegNow.position.u + pegNow.width / 2 > o.position.u - o.width / 2));
+    assert(near(pegNow.width, 4) || pegClear, `resize refused or relocated clear of the windows (w=${pegNow.width}, u=${pegNow.position.u})`);
+    await S(([a, b, c]) => { for (const id of [a, b, c]) window.__studio.studio.removeEntity(id); }, [w1.id, w2.id, peg.id]);
+    // HUD reflects an overlap while the drag is still held
+    const t1 = await S(() => window.__studio.place('display-table', -4, -10));
+    const t2 = await S(() => window.__studio.place('display-table', 4, -10));
+    await S(() => window.__studio.select({ kind: 'none' }));
+    await settle();
+    const g = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, e.height * 0.9, e.position.z); }, t2.id);
+    const onto = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, e.height * 0.9, e.position.z); }, t1.id);
+    await page.mouse.move(g.x, g.y);
+    await page.mouse.down();
+    await page.mouse.move(g.x - 8, g.y, { steps: 2 });
+    await page.mouse.move(onto.x, onto.y, { steps: 10 });
+    await page.waitForTimeout(150);
+    const live = { badge: await page.locator('#hud-collision').isVisible(), objective: await page.locator('#hud-objective').innerText() };
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    assert(live.badge && /Clear the overlap/.test(live.objective), `HUD live during drag ${JSON.stringify(live)}`);
+    await S(([a, b]) => { window.__studio.studio.removeEntity(a); window.__studio.studio.removeEntity(b); }, [t1.id, t2.id]);
+    // the rotation touch band never covers the fixture's own footprint (far camera)
+    const bin = await S(() => window.__studio.place('dump-bin', 0, 0));
+    await S(([id]) => { window.__studio.select({ kind: 'entity', id }); window.__studio.rig.zoom(3); }, [bin.id]);
+    await page.waitForTimeout(200);
+    await settle();
+    const edge = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, 0.05, e.position.z + e.depth / 2 - 0.2); }, bin.id);
+    const kindAtEdge = await S(([x, y]) => window.__studio.pick(x, y).kind, [edge.x, edge.y]);
+    assert(kindAtEdge === 'entity', `front edge of the footprint picks the fixture, not the handle (${kindAtEdge})`);
+    await S((id) => window.__studio.studio.removeEntity(id), bin.id);
+    await page.keyboard.press('r');
+    await settle();
+  });
+
   // ---------------------------------------------------------------- floor plan (L-shape)
   await step('Floor plan editor: L-shaped room rebuilds walls and keeps wall fixtures', async () => {
+    const frontPanelId = (await S(() => window.__studio.placeOnWall('slatwall-panel', 'w2', 30))).id; // world x = -10 on the front wall
+    await S(() => window.__studio.select({ kind: 'none' }));
     const before = await state();
     const panels = before.entities.filter((e) => e.anchor === 'wall' && e.type.endsWith('-panel'));
     await page.locator('#btn-floorplan').click();
@@ -852,10 +905,18 @@ async function main() {
     assert(ws.room.wallIds.length === 6, 'wall ids');
     for (const p of panels) {
       const now = ws.entities.find((e) => e.id === p.id);
-      assert(now && now.parent === p.parent, `panel ${p.id} kept its wall`);
+      assert(now, `panel ${p.id} survived the rebuild`);
     }
     const walls = await S(() => Object.keys(window.__studio.studio.roomView.walls).length);
     assert(walls === 6, 'six wall meshes');
+    // attachments keep their physical placement: the front-wall panel and the entrance stay at their world spots
+    const worldOf = (e) => S((ent) => { const w = window.__studio.studio.getWall(ent.parent); return { x: w.start.x + w.dir.x * ent.position.u, z: w.start.z + w.dir.z * ent.position.u, len: w.length }; }, e);
+    const frontPanel = ws.entities.find((e) => e.id === frontPanelId);
+    const fp = await worldOf(frontPanel);
+    assert(Math.abs(fp.x + 10) < 0.01 && Math.abs(fp.z - 14) < 0.01 && fp.len > 20, `front-wall panel stayed at (-10, 14) on the long front segment: ${JSON.stringify(fp)}`);
+    const entrance = ws.entities.find((e) => e.type === 'door' && e.meta.role === 'entrance');
+    const ep = await worldOf(entrance);
+    assert(Math.abs(ep.z - 14) < 0.01 && ep.len > 20, `entrance stayed on the front wall: ${JSON.stringify(ep)}`);
     // a floor fixture dragged toward the notch is clamped to the real outline
     const bin = ws.entities.find((e) => e.type === 'dump-bin');
     const start = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, e.height * 0.9, e.position.z); }, bin.id);

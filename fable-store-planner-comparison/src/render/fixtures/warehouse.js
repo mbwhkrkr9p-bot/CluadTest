@@ -239,8 +239,6 @@ function buildPackingStation(entity, def) {
   const shelfY = h - 0.55, shelfD = Math.min(0.9, d * 0.36), riserZ = -d / 2 + 0.25;
   for (const sx of [-1, 1]) g.add(box(0.1, shelfY - benchTop, 0.1, steel, sx * (w / 2 - 0.2), benchTop, riserZ));
   g.add(box(w, 0.06, shelfD, top, 0, shelfY, -d / 2 + shelfD / 2));
-  g.add(box(0.7, 0.42, 0.55, kraft, -w / 2 + 0.6, shelfY + 0.06, -d / 2 + shelfD / 2));
-  g.add(box(0.55, 0.36, 0.5, kraft, -w / 2 + 1.35, shelfY + 0.06, -d / 2 + shelfD / 2));
   // Roll holder rod spanning the two risers, carrying a roll of kraft paper.
   const rollY = benchTop + 1.0;
   g.add(rodX(w - 0.4, 0.02, chrome, 0, rollY, riserZ));
@@ -251,9 +249,8 @@ function buildPackingStation(entity, def) {
   g.add(rodZ(0.35, 0.03, dark, mx, benchTop + 1.0, armZ + 0.17));
   g.add(box(1.1, 0.7, 0.05, dark, mx, benchTop + 0.65, armZ + 0.35));
   g.add(wallPlane(1.0, 0.6, mat('#9fc3d9', { roughness: 0.3, metalness: 0.1 }), mx, benchTop + 1.0, armZ + 0.376));
-  // Bins and a parcel on the bench.
+  // Tote bins on the bench (equipment only; no parcels or merchandise).
   g.add(box(0.8, 0.5, 0.6, mat(C.blue, { roughness: 0.6 }), -w / 2 + 0.6, benchTop, d / 2 - 0.5));
-  g.add(box(Math.min(0.9, w * 0.18), 0.5, 0.6, kraft, 0, benchTop, 0.15));
   g.add(box(0.7, 0.4, 0.5, mat(C.terracotta, { roughness: 0.6 }), w / 2 - 0.8, benchTop, d / 2 - 0.45));
   return g;
 }
