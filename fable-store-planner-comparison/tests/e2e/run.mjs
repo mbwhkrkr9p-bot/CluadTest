@@ -697,7 +697,7 @@ async function main() {
     return guideShown ? 'drag labels shown' : '';
   });
 
-  await step('Regressions: windows avoid door openings; interrupted scrub is one entry; wall selection frame; hex readout fits', async () => {
+  await step('Regressions: windows avoid door openings; scrub-safe shortcuts; interrupted scrub is one entry; wall frame; hex readout fits', async () => {
     // a window added to the front wall (entrance door centred at u=20) must not sit across the door
     await S(() => window.__studio.select({ kind: 'wall', id: 'w2' }));
     await page.waitForTimeout(150);
@@ -714,30 +714,85 @@ async function main() {
     await S(() => window.__studio.select({ kind: 'wall', id: 'w0' }));
     await page.waitForTimeout(150);
     assert(await S(() => window.__studio.studio.gizmos.hasWallFrame()), 'wall frame shown');
-    // hex readout is fully visible inside the panel (wall stays selected so a later Escape steps back, not out of the mode)
+    // hex readout is fully visible inside the panel
     await page.locator('#finish-tabs .tab', { hasText: 'Walls' }).click();
     await page.locator('#finish-body .seg button', { hasText: 'All walls' }).click();
     await page.locator('#finish-body .swatch', { hasText: 'Custom color' }).click();
     await page.waitForTimeout(150);
     const hex = await page.locator('#finish-body .color-wheel__hex').evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, right: el.getBoundingClientRect().right, panelRight: el.closest('#finish-body').getBoundingClientRect().right }));
     assert(hex.sw <= hex.cw + 1 && hex.right <= hex.panelRight + 1, `hex readout not clipped ${JSON.stringify(hex)}`);
-    // a scrub interrupted by Escape still lands as exactly one undo entry
+    // keys pressed during a scrub must not rewind the layout or corrupt the history around it
     await page.locator('#finish-body .color-wheel__canvas').scrollIntoViewIfNeeded();
     const wheel = await page.locator('#finish-body .color-wheel__canvas').boundingBox();
-    const undoBefore = await S(() => window.__studio.studio.undoLabel());
+    const entitiesBefore = (await state()).entities.length;
     await page.mouse.move(wheel.x + wheel.width / 2, wheel.y + wheel.height / 2);
     await page.mouse.down();
     await page.mouse.move(wheel.x + wheel.width * 0.75, wheel.y + wheel.height * 0.4, { steps: 6 });
-    await page.keyboard.press('Escape'); // steps the wall selection back, re-rendering the panel mid-scrub
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-    assert(!(await S(() => window.__studio.studio.gizmos.hasWallFrame())), 'wall frame cleared');
-    assert(await page.locator('#finish-panel').isVisible(), 'still in finish mode');
-    assert((await S(() => window.__studio.studio.undoLabel())) === 'Change colour', `one entry for the interrupted scrub (top: ${await S(() => window.__studio.studio.undoLabel())}, before: ${undoBefore})`);
-    const colourAfter = (await state()).finishes.wallDefault.color;
     await page.keyboard.press('Control+z');
-    assert((await state()).finishes.wallDefault.color !== colourAfter, 'single undo reverts the interrupted scrub');
+    await page.keyboard.press('Delete');
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    assert((await state()).entities.length === entitiesBefore, 'Delete was inert during the scrub');
+    assert((await S(() => window.__studio.studio.undoLabel())) === 'Change wall colour', `scrub is its own entry (top: ${await S(() => window.__studio.studio.undoLabel())})`);
+    const colourAfter = (await state()).finishes.wallDefault.color;
+    const cardsAfter = JSON.stringify((await state()).customColors);
+    assert(JSON.parse(cardsAfter).includes(colourAfter), 'committed colour is remembered as a card');
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(150);
+    assert((await state()).finishes.wallDefault.color !== colourAfter, 'single undo reverts the whole scrub');
     await page.keyboard.press('Control+y');
+    await page.waitForTimeout(150);
+    assert((await state()).finishes.wallDefault.color === colourAfter, 'redo restores the colour');
+    assert(JSON.stringify((await state()).customColors) === cardsAfter, `redo restores the recent colour cards ${JSON.stringify((await state()).customColors)}`);
+    // a scrub interrupted by a panel re-render still lands as exactly one entry
+    await page.mouse.move(wheel.x + wheel.width / 2, wheel.y + wheel.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(wheel.x + wheel.width * 0.3, wheel.y + wheel.height * 0.7, { steps: 6 });
+    await S(() => window.__studio.select({ kind: 'none' })); // re-renders the panel mid-scrub
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    assert((await S(() => window.__studio.studio.undoLabel())) === 'Change colour', `interrupted scrub is one entry (top: ${await S(() => window.__studio.studio.undoLabel())})`);
+  });
+
+  await step('Regressions: shortcuts stay inert while typing and while a slider has focus', async () => {
+    await page.locator('#finish-tabs .tab', { hasText: 'Walls' }).click();
+    await page.locator('#finish-body .swatch', { hasText: 'Custom color' }).click();
+    await page.waitForTimeout(150);
+    // arrow keys aimed at the focused wheel adjust the wheel, never the selected object
+    const win = await S(() => window.__studio.studio.addWindow('picture', 'w0', 30));
+    await S((id) => window.__studio.select({ kind: 'entity', id }), win.id);
+    await page.waitForTimeout(200);
+    await page.locator('#finish-body .color-wheel__canvas').focus();
+    const posBefore = (await state()).entities.find((e) => e.id === win.id).position;
+    const hexBefore = await page.locator('#finish-body .color-wheel__hex').innerText();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowUp');
+    await page.waitForTimeout(200);
+    const posAfter = (await state()).entities.find((e) => e.id === win.id).position;
+    assert(near(posAfter.u, posBefore.u) && near(posAfter.v, posBefore.v), `window untouched by wheel arrows ${JSON.stringify(posAfter)}`);
+    assert((await page.locator('#finish-body .color-wheel__hex').innerText()) !== hexBefore, 'the wheel itself responded to the arrows');
+    await S((id) => window.__studio.studio.removeEntity(id), win.id);
+    await page.locator('#finish-done').click();
+    await page.waitForTimeout(200);
+    // Escape and Delete typed into a field never touch the 3D selection
+    const table = await S(() => window.__studio.place('display-table', -14, -10));
+    await S((id) => window.__studio.select({ kind: 'entity', id }), table.id);
+    await page.waitForTimeout(150);
+    const count = (await state()).entities.length;
+    await page.locator('#kit-search').fill('shelf');
+    await page.locator('#kit-search').press('Escape');
+    await page.waitForTimeout(150);
+    assert((await S(() => window.__studio.getSelection().kind)) === 'entity', 'Escape while typing left the selection alone');
+    await page.locator('#kit-search').fill('shelf');
+    await page.locator('#kit-search').press('Delete');
+    await page.locator('#kit-search').press('r');
+    await page.waitForTimeout(150);
+    assert((await state()).entities.length === count, 'Delete while typing removed nothing');
+    await page.locator('#kit-search').fill('');
+    await S((id) => window.__studio.studio.removeEntity(id), table.id);
+    await S(() => window.__studio.select({ kind: 'none' }));
+    await page.locator('#btn-finishes').click();
+    await page.waitForTimeout(200);
   });
 
   await step('Door styles can be changed (selected door and all doors)', async () => {

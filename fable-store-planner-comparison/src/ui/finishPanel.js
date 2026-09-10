@@ -41,6 +41,7 @@ export function createFinishPanel(studio, { palette, toasts }) {
   let doorTarget = 'selected'; // 'selected' | 'all'
   let wheel = null;
   let scrubBefore = null;
+  let scrubRemember = null; // hex a wall scrub should add to the recent cards when it commits
   let previewRaf = 0;
 
   function renderTabs() {
@@ -84,9 +85,15 @@ export function createFinishPanel(studio, { palette, toasts }) {
     if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = 0; }
     if (!scrubBefore) return;
     const before = scrubBefore;
+    const remember = scrubRemember;
     scrubBefore = null;
+    scrubRemember = null;
     suppressRefresh = true;
-    try { studio.endEdit('Change colour', before); } finally { suppressRefresh = false; }
+    try {
+      // remember the colour inside the snapshot, so undo/redo carries the card with the finish
+      if (remember) studio.rememberCustomColor(remember);
+      studio.endEdit('Change colour', before);
+    } finally { suppressRefresh = false; }
   }
   function destroyWheel() { finishPendingScrub(); if (wheel) { wheel.destroy(); wheel = null; } }
 
@@ -118,8 +125,13 @@ export function createFinishPanel(studio, { palette, toasts }) {
         },
         onChange: (hex) => {
           if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = 0; }
-          studio.previewFloorFinish('custom-carpet', hex);
-          if (scrubBefore) { studio.endEdit('Change floor colour', scrubBefore); scrubBefore = null; } else studio.setFloorFinish('custom-carpet', hex);
+          const before = scrubBefore || studio.beginEdit();
+          scrubBefore = null;
+          suppressRefresh = true;
+          try {
+            studio.previewFloorFinish('custom-carpet', hex);
+            studio.endEdit('Change floor colour', before);
+          } finally { suppressRefresh = false; }
         },
       });
       host.appendChild(wheel.element);
@@ -169,13 +181,20 @@ export function createFinishPanel(studio, { palette, toasts }) {
         size: 170, color: current.color || '#b9613a', label: 'Custom wall colour',
         onInput: (hex) => {
           if (!scrubBefore) scrubBefore = studio.beginEdit();
+          scrubRemember = hex;
           schedulePreview(() => studio.previewWallFinish(target, 'custom', hex));
         },
         onChange: (hex) => {
           if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = 0; }
-          studio.previewWallFinish(target, 'custom', hex);
-          if (scrubBefore) { studio.endEdit('Change wall colour', scrubBefore); scrubBefore = null; } else studio.setWallFinish(target, 'custom', hex);
-          studio.rememberCustomColor(hex);
+          const before = scrubBefore || studio.beginEdit();
+          scrubBefore = null;
+          scrubRemember = null;
+          suppressRefresh = true;
+          try {
+            studio.previewWallFinish(target, 'custom', hex);
+            studio.rememberCustomColor(hex); // inside the snapshot: redo restores the card too
+            studio.endEdit('Change wall colour', before);
+          } finally { suppressRefresh = false; }
           renderRecent();
         },
       });

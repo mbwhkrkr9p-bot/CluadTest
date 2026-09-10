@@ -160,9 +160,14 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     return true;
   }
 
+  // Open edit sessions (drags, colour scrubs). While any is open the editor must not mutate
+  // history behind the gesture's back, so keyboard shortcuts consult isEditing().
+  let openEdits = 0;
+
   /** Begin a multi-event edit (drag). Returns the snapshot to hand to endEdit. */
-  function beginEdit() { return State.serialize(ws); }
+  function beginEdit() { openEdits += 1; return State.serialize(ws); }
   function endEdit(label, before, extra = null) {
+    openEdits = Math.max(0, openEdits - 1);
     if (extra) extra(ws);
     State.touch(ws);
     const after = State.serialize(ws);
@@ -174,6 +179,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     }
   }
   function cancelEdit(before) {
+    openEdits = Math.max(0, openEdits - 1);
     restore(before, false);
   }
 
@@ -933,7 +939,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     setMode, getMode: () => mode, home, focusPoint, startReview, cancelReview, isReviewing: () => reviewActive,
     // scene access
     sceneCtx, camera, rig, roomView, gizmos, entityViews, picker, labels, cutaway,
-    requestRender, setSize, project, flushSave, dispose, isAnimating: () => animating,
+    requestRender, setSize, project, flushSave, dispose, isAnimating: () => animating, isEditing: () => openEdits > 0,
     collisions: () => collisionReport, game: () => gameInfo,
     on, emit,
     reducedMotion,
