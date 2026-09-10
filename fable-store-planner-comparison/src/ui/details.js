@@ -124,9 +124,12 @@ export function createDetails(studio, { toasts, onFinishes, onFloorPlan }) {
       section('Finish'),
       paragraph(presetName(WALL_PRESETS, finish.preset)),
       button('Design finishes', () => onFinishes('walls')),
-      section('Tip'),
-      paragraph('The Build Kit now shows wall fixtures. Tap one to mount it on this wall, or drag it onto the wall.'),
     );
+    if (studio.getMode() === 'finish') {
+      body.append(section('Tip'), paragraph('Use the Walls tab to style this wall, or the Windows tab to add a window to it.'));
+    } else {
+      body.append(section('Tip'), paragraph('The Build Kit now shows wall fixtures. Tap one to mount it on this wall, or drag it onto the wall.'));
+    }
     actions.hidden = true;
   }
 

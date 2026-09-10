@@ -75,10 +75,10 @@ export function createHud(studio, { toasts }) {
 
   studio.on('game', ({ info, fresh }) => {
     render(info);
-    for (const id of fresh) {
-      const step = info.steps.find((s) => s.id === id);
-      if (step) toasts.milestone(`${step.title} complete`, info.complete ? 'Layout complete!' : undefined);
-    }
+    if (!fresh.length) return;
+    const titles = fresh.map((id) => info.steps.find((s) => s.id === id)?.title).filter(Boolean);
+    if (titles.length === 1) toasts.milestone(`${titles[0]} complete`, info.complete ? 'Layout complete!' : undefined);
+    else toasts.milestone(`${titles.length} steps complete`, `${titles.join(', ')}${info.complete ? ' — layout complete!' : ''}`);
   });
   studio.on('review', ({ active, completed }) => {
     review.textContent = active ? 'Stop review' : 'Review';

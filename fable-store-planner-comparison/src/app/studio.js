@@ -107,7 +107,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     const span = Math.max(b.width, b.depth * 1.25);
     return {
       target: new THREE.Vector3(c.x, 1.5, c.z),
-      distance: Math.min(230, span * 1.25 + 14),
+      distance: Math.min(230, span * 1.12 + 12),
       theta: 0.38,
       phi: 0.98,
     };
