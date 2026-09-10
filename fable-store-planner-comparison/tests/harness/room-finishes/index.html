@@ -18,6 +18,7 @@
   //   ?override=w2:alpine                per-wall override(s), comma separated
   //   ?fade=w2,w3                        force-fade walls; ?nocut=1 disables the camera cutaway
   //   ?cam=x,y,z                         camera position; ?view=swatches renders the 2D swatch grid
+  //   ?sunpos=x,y,z&sun=<i>&hemi=<i>&env=<i>  lighting overrides
   //   ?checks=0                          skip the numeric checks
   import * as THREE from '../../../vendor/three/three.module.js';
   import { createRoomView } from '../../../src/render/roomMesh.js';
@@ -134,10 +135,11 @@
     camera.lookAt(0, 0, 0);
     scene.fog = new THREE.Fog('#f4efe7', 140 * camScale, 420 * camScale);
 
-    const hemi = new THREE.HemisphereLight('#fff6e8', '#b9ae9c', 1.1);
+    const hemi = new THREE.HemisphereLight('#fff6e8', '#b9ae9c', Number(get('hemi', 0.75)));
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight('#fff1dc', 2.0);
-    sun.position.set(28, 48, 34).multiplyScalar(camScale);
+    const sun = new THREE.DirectionalLight('#fff1dc', Number(get('sun', 2.3)));
+    const sunPos = get('sunpos', '-20,48,30').split(',').map(Number);
+    sun.position.set(sunPos[0], sunPos[1], sunPos[2]).multiplyScalar(camScale);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     const extent = 36 * camScale;
@@ -147,7 +149,7 @@
     sun.shadow.normalBias = 0.02;
     scene.add(sun);
     scene.environment = makeEnvironment(renderer);
-    scene.environmentIntensity = 0.55;
+    scene.environmentIntensity = Number(get('env', 0.4));
 
     let renders = 0;
     const requestRender = () => { renders++; };

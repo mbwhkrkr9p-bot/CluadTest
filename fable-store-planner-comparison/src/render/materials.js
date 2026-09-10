@@ -40,12 +40,12 @@ const SWATCH_PX = 256;
 
 const WOODS = {
   'light-oak': {
-    tones: ['#cfae7c', '#c4a06e', '#d8ba8a', '#bd9666', '#c9a877', '#d2b382'],
-    grain: '#7d5a36', seam: '#6b4a2f', highlight: '#f2e0bf',
+    tones: ['#c9a674', '#c19c69', '#d0ae7e', '#bd9765', '#cba97a', '#c6a371'],
+    grain: '#85603a', streak: '#a9834f', seam: '#7a5a3a', highlight: '#efdcb8',
   },
   'dark-walnut': {
-    tones: ['#5c3d29', '#4d3122', '#66452f', '#432a1b', '#573823', '#6b4a33'],
-    grain: '#1f120a', seam: '#170c06', highlight: '#8a6547',
+    tones: ['#5a3b28', '#523524', '#60402c', '#4c3020', '#5d3e2a', '#563a27'],
+    grain: '#20120a', streak: '#3a2316', seam: '#1a0e07', highlight: '#8a6547',
   },
 };
 
@@ -350,6 +350,19 @@ function blotch(ctx, x, y, r, color, alpha) {
   ctx.fillRect(x - r, y - r, r * 2, r * 2);
 }
 
+/** Soft elliptical blotch (rx along x, ry along y). */
+function softEllipse(ctx, cx, cy, rx, ry, color, alpha) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(rx, ry);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  g.addColorStop(0, rgba(color, alpha));
+  g.addColorStop(1, rgba(color, 0));
+  ctx.fillStyle = g;
+  ctx.fillRect(-1, -1, 2, 2);
+  ctx.restore();
+}
+
 function mottle(ctx, size, random, count, light, dark, alpha, minR, maxR) {
   for (let i = 0; i < count; i++) {
     const x = random() * size;
@@ -387,8 +400,8 @@ function speckle(ctx, size, count, color, alpha, random, radius) {
 
 function paintConcrete(ctx, size, _color, random) {
   const s = size / 512;
-  fill(ctx, size, '#c8c5bf');
-  mottle(ctx, size, random, 36, '#dad7d1', '#b1aea8', 0.16, 0.12, 0.34);
+  fill(ctx, size, '#c1beb8');
+  mottle(ctx, size, random, 36, '#d6d3cd', '#a9a6a0', 0.17, 0.12, 0.34);
   // faint trowel arcs
   ctx.lineCap = 'round';
   for (let i = 0; i < 18; i++) {
@@ -423,7 +436,7 @@ function paintPlanks(ctx, size, wood, random) {
       if (x + p.len > size) renderPlank(ctx, p, x - size, r * rowH, size, wood);
     }
   }
-  pixelNoise(ctx, size, 5, random);
+  pixelNoise(ctx, size, 6, random);
 }
 
 /** Planks covering exactly `size` px starting at a random offset (the last plank wraps around). */
@@ -432,12 +445,12 @@ function planRow(size, ft, h, wood, random) {
   const planks = [];
   let covered = 0;
   while (covered < size) {
-    const len = Math.min(ft * (1.2 + random() * 2.0), size - covered);
+    const len = Math.min(ft * (2 + random() * 2), size - covered);
     planks.push({ x0: start + covered, len });
     covered += len;
   }
   const last = planks[planks.length - 1];
-  if (planks.length > 1 && last.len < ft * 0.6) {
+  if (planks.length > 1 && last.len < ft * 0.9) {
     planks.pop();
     planks[planks.length - 1].len += last.len;
   }
@@ -446,21 +459,27 @@ function planRow(size, ft, h, wood, random) {
 
 function planPlank(len, h, wood, random, scale) {
   const grain = [];
-  const n = 5 + Math.floor(random() * 5);
+  const n = 8 + Math.floor(random() * 6);
   for (let i = 0; i < n; i++) {
     grain.push({
-      y: (i + 0.5 + (random() - 0.5) * 0.7) * (h / n),
-      amp: h * (0.02 + random() * 0.06),
+      y: (i + 0.5 + (random() - 0.5) * 0.8) * (h / n),
+      amp: h * (0.02 + random() * 0.07),
       freq: (Math.PI * 2) / (len * (0.35 + random() * 0.9)),
       phase: random() * Math.PI * 2,
-      alpha: 0.05 + random() * 0.1,
-      width: (0.6 + random() * 1.1) * scale,
+      alpha: 0.1 + random() * 0.18,
+      width: (0.7 + random() * 1.2) * scale,
     });
   }
+  // soft streaks: low-frequency light/dark bands running along the plank
+  const streaks = [];
+  const m = 2 + Math.floor(random() * 3);
+  for (let i = 0; i < m; i++) {
+    streaks.push({ x: len * random(), y: h * random(), rx: len * (0.2 + random() * 0.35), ry: h * (0.12 + random() * 0.2), light: random() < 0.4, alpha: 0.12 + random() * 0.12 });
+  }
   const arcs = random() < 0.5
-    ? { x: len * (0.15 + random() * 0.7), count: 2 + Math.floor(random() * 3), spread: h * (0.5 + random() * 0.6), alpha: 0.05 + random() * 0.06 }
+    ? { x: len * (0.15 + random() * 0.7), count: 2 + Math.floor(random() * 3), spread: h * (0.5 + random() * 0.6), alpha: 0.08 + random() * 0.08 }
     : null;
-  return { h, tone: pick(random, wood.tones), grain, arcs };
+  return { h, tone: pick(random, wood.tones), grain, streaks, arcs };
 }
 
 function renderPlank(ctx, p, x, y, size, wood) {
@@ -471,6 +490,9 @@ function renderPlank(ctx, p, x, y, size, wood) {
   ctx.clip();
   ctx.fillStyle = p.tone;
   ctx.fillRect(x, y, p.len, p.h);
+  for (const st of p.streaks) {
+    softEllipse(ctx, x + st.x, y + st.y, st.rx, st.ry, st.light ? wood.highlight : wood.streak, st.alpha);
+  }
   ctx.lineCap = 'round';
   for (const g of p.grain) {
     ctx.strokeStyle = rgba(wood.grain, g.alpha);
@@ -495,13 +517,13 @@ function renderPlank(ctx, p, x, y, size, wood) {
     }
   }
   // seams: top highlight, bottom shadow, end joint
-  ctx.fillStyle = rgba(wood.highlight, 0.16);
+  ctx.fillStyle = rgba(wood.highlight, 0.12);
   ctx.fillRect(x, y, p.len, 1 * s);
   ctx.fillStyle = rgba(wood.seam, 0.5);
   ctx.fillRect(x, y + p.h - 1.3 * s, p.len, 1.3 * s);
-  ctx.fillStyle = rgba(wood.seam, 0.6);
+  ctx.fillStyle = rgba(wood.seam, 0.55);
   ctx.fillRect(x, y, 1.4 * s, p.h);
-  ctx.fillStyle = rgba(wood.highlight, 0.12);
+  ctx.fillStyle = rgba(wood.highlight, 0.1);
   ctx.fillRect(x + 1.4 * s, y, 1 * s, p.h);
   ctx.restore();
 }
@@ -542,7 +564,7 @@ function paintSlate(ctx, size, _color, random) {
       const x = i * T + grout / 2;
       const y = j * T + grout / 2;
       const w = T - grout;
-      const base = hsl(206 + random() * 12, 6 + random() * 9, 42 + random() * 12);
+      const base = hsl(206 + random() * 12, 6 + random() * 9, 45 + random() * 7);
       ctx.save();
       ctx.beginPath();
       ctx.rect(x, y, w, w);
@@ -590,32 +612,34 @@ function paintLinen(ctx, size, _color, random) {
   const base = '#e8e0d0';
   const light = shade(base, 0.05);
   const dark = shade(base, -0.06);
-  const cell = size / 32;
+  const threads = 48;
+  const cell = size / threads;
   fill(ctx, size, base);
-  for (let i = 0; i < 32; i++) {
-    ctx.fillStyle = rgba(i % 2 ? light : dark, 0.16);
+  for (let i = 0; i < threads; i++) {
+    ctx.fillStyle = rgba(i % 2 ? light : dark, 0.1);
     ctx.fillRect(i * cell, 0, cell, size);
   }
-  for (let j = 0; j < 32; j++) {
-    ctx.fillStyle = rgba(j % 2 ? light : dark, 0.16);
+  for (let j = 0; j < threads; j++) {
+    ctx.fillStyle = rgba(j % 2 ? light : dark, 0.1);
     ctx.fillRect(0, j * cell, size, cell);
   }
-  for (let j = 0; j < 32; j++) {
-    for (let i = 0; i < 32; i++) {
+  ctx.fillStyle = rgba(dark, 0.07);
+  for (let j = 0; j < threads; j++) {
+    for (let i = 0; i < threads; i++) {
       if ((i + j) % 2) continue;
-      ctx.fillStyle = rgba(light, 0.08);
-      ctx.fillRect(i * cell + cell * 0.15, j * cell + cell * 0.15, cell * 0.7, cell * 0.7);
+      ctx.fillRect(i * cell + cell * 0.2, j * cell + cell * 0.2, cell * 0.6, cell * 0.6);
     }
   }
   pixelNoise(ctx, size, 3, random);
 }
 
-/** Alpine geometric: bands of mountain chevrons with snow caps and diamond accents in two muted sage tones. */
+/** Alpine geometric: 2 ft bands of mountain chevrons with snow caps and diamond accents in two muted sage tones. */
 function paintAlpine(ctx, size, _color, random) {
   const cream = '#ece5d7';
   const sage = '#93a288';
   const pale = '#b9c2ad';
-  const band = size / 4;
+  const bands = 2;
+  const band = size / bands;
   fill(ctx, size, cream);
   const triangle = (cx, baseY, halfW, height, color) => {
     ctx.fillStyle = color;
@@ -636,19 +660,19 @@ function paintAlpine(ctx, size, _color, random) {
     ctx.closePath();
     ctx.fill();
   };
-  for (let b = 0; b < 4; b++) {
+  for (let b = 0; b < bands; b++) {
     const baseY = (b + 1) * band;
     const offset = b % 2 ? band / 2 : 0;
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < bands; k++) {
       const cx = k * band + offset + band / 2;
       wrapped(size, cx, baseY, band / 2, (px) => {
         triangle(px, baseY, band * 0.5, band * 0.58, sage);
         triangle(px, baseY - band * 0.36, band * 0.5 * 0.38, band * 0.58 * 0.38, pale);
-        diamond(px + band / 2, baseY - band * 0.78, band * 0.055, sage);
+        diamond(px + band / 2, baseY - band * 0.78, band * 0.05, sage);
       });
     }
     ctx.fillStyle = rgba(sage, 0.35);
-    ctx.fillRect(0, baseY - band, size, 1.2 * (size / 512));
+    ctx.fillRect(0, baseY - band, size, 1.5 * (size / 512));
   }
   pixelNoise(ctx, size, 3, random);
 }

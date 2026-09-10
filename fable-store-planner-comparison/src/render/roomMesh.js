@@ -251,7 +251,7 @@ export function createRoomView(sceneCtx) {
   function reattach(carried) {
     for (const [wallId, children] of Object.entries(carried)) {
       const wall = view.walls[wallId];
-      if (wall) wall.attachGroup.add(...children);
+      if (wall && children.length) wall.attachGroup.add(...children);
     }
   }
 
@@ -399,11 +399,12 @@ export function createRoomView(sceneCtx) {
   function setWallFade(wallId, faded, immediate = false) {
     const wall = view.walls[wallId];
     if (!wall) return false;
-    const fade = internals.get(wallId).fade;
+    const priv = internals.get(wallId);
+    const fade = priv.fade;
     const target = faded ? 0 : 1;
     fade.faded = !!faded;
     setWallPickable(wall, !faded);
-    setWallShadows(wall, internals.get(wallId), !faded);
+    setWallShadows(wall, priv, !faded);
     if (immediate || fade.level === target) {
       fade.level = target;
       fade.animating = false;
@@ -440,13 +441,17 @@ export function createRoomView(sceneCtx) {
         }
         applyFadeLevel(wall, fade.level);
       } else if (fade.faded) {
-        // objects mounted under a faded wall after the fade get the faded look too
-        applyFadeLevel(wall, fade.level);
-        setWallPickable(wall, false);
-        setWallShadows(wall, priv, false);
+        enforceFaded(wall, priv);
       }
     }
     return active;
+  }
+
+  /** Objects mounted under an already-faded wall pick up the faded look on the next tick. */
+  function enforceFaded(wall, priv) {
+    applyFadeLevel(wall, priv.fade.level);
+    setWallPickable(wall, false);
+    setWallShadows(wall, priv, false);
   }
 
   /** level 1 = solid, 0 = fully faded. Opacity scales from each material's own baseline (glass stays proportional). */
@@ -694,7 +699,7 @@ function createGridTexture() {
   ctx.clearRect(0, 0, size, size);
   for (let i = 0; i < 5; i++) {
     const major = i === 0;
-    ctx.fillStyle = major ? 'rgba(70,64,58,0.30)' : 'rgba(70,64,58,0.18)';
+    ctx.fillStyle = major ? 'rgba(70,64,58,0.24)' : 'rgba(70,64,58,0.14)';
     const w = major ? 2 : 1.5;
     ctx.fillRect(i * ft, 0, w, size);
     ctx.fillRect(0, i * ft, size, w);

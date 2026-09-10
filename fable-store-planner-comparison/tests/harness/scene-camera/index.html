@@ -1,0 +1,276 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Harness: scene + camera rig</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f4efe7; }
+  #c { display: block; width: 100vw; height: 100vh; }
+</style>
+<canvas id="c"></canvas>
+<script type="module">
+  // Throwaway verification page for src/render/scene.js and src/render/cameraRig.js.
+  // Runs a scripted sequence of camera operations with invariant checks and exposes the
+  // results on window.__harness for the Playwright runner.
+  import * as THREE from '../../../vendor/three/three.module.js';
+  import { createScene } from '../../../src/render/scene.js';
+  import { createCameraRig } from '../../../src/render/cameraRig.js';
+
+  const results = [];
+  function check(name, ok, detail = '') {
+    results.push({ name, ok: Boolean(ok), detail: String(detail) });
+    console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
+  }
+  const near = (a, b, eps) => Math.abs(a - b) <= eps;
+  const wrap = (t) => ((t % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  const throws = (fn) => { try { fn(); return false; } catch (e) { return e instanceof Error; } };
+
+  // ---------------------------------------------------------------- scene + content
+  const canvas = document.getElementById('c');
+  const ctx = createScene(canvas);
+  const { scene, camera, renderer } = ctx;
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  ctx.setSize(W, H);
+
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 60), new THREE.MeshStandardMaterial({ color: 0xcdbfa6, roughness: 0.9 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+  const boxes = [
+    [-10, -6, 4, 6, 1.5, 0xa57c52, 0.6, 0.05], [6, -8, 3, 5.5, 3, 0x9aa0a6, 0.35, 0.6],
+    [2, 6, 5, 3.5, 2, 0xb9613a, 0.7, 0.0], [-8, 8, 2, 6, 2, 0x7f9270, 0.6, 0.0],
+    [12, 4, 6, 3.5, 2.5, 0xf2efe9, 0.5, 0.0], [-2, 0, 1.5, 6, 1.5, 0x3f6d9c, 0.4, 0.2],
+  ];
+  for (const [x, z, w, h, d, color, roughness, metalness] of boxes) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness, metalness }));
+    m.position.set(x, h / 2, z);
+    m.castShadow = true; m.receiveShadow = true;
+    scene.add(m);
+  }
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(40, 9, 0.5), new THREE.MeshStandardMaterial({ color: 0xf1ece3, roughness: 0.85 }));
+  wall.position.set(0, 4.5, -14.25);
+  wall.castShadow = true; wall.receiveShadow = true;
+  scene.add(wall);
+  ctx.fitShadowsTo({ minX: -20, maxX: 20, minZ: -14, maxZ: 14 });
+
+  // ---------------------------------------------------------------- scene configuration checks
+  check('renderer tone mapping ACES / sRGB output', renderer.toneMapping === THREE.ACESFilmicToneMapping && renderer.outputColorSpace === THREE.SRGBColorSpace && near(renderer.toneMappingExposure, 1.05, 1e-9));
+  check('shadow map enabled + filtered PCF (r186 replacement for PCFSoft)', renderer.shadowMap.enabled && renderer.shadowMap.type === THREE.PCFShadowMap && ctx.sun.shadow.radius === 4);
+  check('pixel ratio <= 2', renderer.getPixelRatio() <= 2 && renderer.getPixelRatio() > 0, renderer.getPixelRatio());
+  check('background is warm off-white', scene.background && scene.background.getHexString() === 'f4efe7');
+  check('fog is faint and far', scene.fog && scene.fog.near === 140 && scene.fog.far === 420 && scene.fog.color.getHexString() === 'f4efe7');
+  check('environment texture present, modest intensity', ctx.environment && ctx.environment.isTexture && scene.environment === ctx.environment && near(scene.environmentIntensity, 0.6, 1e-9));
+  check('sun casts 2048 shadows with bias', ctx.sun.castShadow && ctx.sun.shadow.mapSize.x === 2048 && near(ctx.sun.shadow.bias, -0.0004, 1e-9) && near(ctx.sun.shadow.normalBias, 0.02, 1e-9));
+  check('hemi / ambient lights exist', ctx.hemi.isHemisphereLight && ctx.ambient.isAmbientLight && near(ctx.hemi.intensity, 0.55, 1e-9) && near(ctx.ambient.intensity, 0.12, 1e-9));
+  check('camera fov 45 + aspect from setSize', camera.fov === 45 && near(camera.aspect, W / H, 1e-9) && ctx.THREE === THREE);
+  {
+    const sc = ctx.sun.shadow.camera;
+    const covers = sc.right - sc.left >= 40 && sc.top - sc.bottom >= 28 && sc.far > sc.near;
+    check('fitShadowsTo covers the room bounds', covers, `w=${(sc.right - sc.left).toFixed(1)} h=${(sc.top - sc.bottom).toFixed(1)} near=${sc.near.toFixed(1)} far=${sc.far.toFixed(1)}`);
+    check('sun aims at the room centre', ctx.sun.target.position.x === 0 && ctx.sun.target.position.z === 0 && ctx.sun.position.y > 50);
+  }
+  ctx.setSize(600, 400);
+  check('setSize updates renderer + camera', near(camera.aspect, 1.5, 1e-9) && renderer.domElement.width === Math.round(600 * renderer.getPixelRatio()) && canvas.clientWidth === W, `canvas css width stays ${canvas.clientWidth}`);
+  ctx.setSize(W, H);
+
+  // ---------------------------------------------------------------- rig + invariants
+  const LIMITS = { minDistance: 6, maxDistance: 240, minPolar: 0.08, maxPolar: 1.45 };
+  const rig = createCameraRig(camera, { minDistance: 6, maxDistance: 240 });
+  const HOME = { target: new THREE.Vector3(0, 1.5, 0), distance: 62, theta: 0.38, phi: 0.98 };
+  rig.setHome(HOME);
+  rig.home(false);
+  rig.applyToCamera();
+  let changeCount = 0;
+  rig.onChange(() => { changeCount++; });
+
+  let violations = 0, steps = 0;
+  function invariants(tag) {
+    steps++;
+    const p = camera.position;
+    const ok = p.y >= 0.5 - 1e-6
+      && rig.distance >= LIMITS.minDistance - 1e-9 && rig.distance <= LIMITS.maxDistance + 1e-9
+      && rig.phi >= LIMITS.minPolar - 1e-9 && rig.phi <= LIMITS.maxPolar + 1e-9
+      && rig.target.y >= 0 && [p.x, p.y, p.z].every(Number.isFinite);
+    if (!ok) {
+      violations++;
+      if (violations <= 5) console.log(`violation at ${tag}: y=${p.y} d=${rig.distance} phi=${rig.phi} ty=${rig.target.y}`);
+    }
+  }
+  function run(n, tag, each) {
+    let moving = false;
+    for (let i = 0; i < n; i++) {
+      if (each) each(i);
+      moving = rig.update(1 / 60);
+      rig.applyToCamera();
+      invariants(tag);
+    }
+    return moving;
+  }
+  function settle(max = 900) {
+    let n = 0;
+    while (n < max && rig.update(1 / 60)) { rig.applyToCamera(); invariants('settle'); n++; }
+    rig.applyToCamera();
+    return n;
+  }
+
+  // orbit in every direction, including trying to go below the floor and straight down
+  run(240, 'orbit-theta', () => rig.orbit(0.06, 0));
+  run(240, 'orbit-down', () => rig.orbit(0, 0.05));
+  check('orbit toward the floor clamps at maxPolar, camera stays above floor', near(rig.phi, LIMITS.maxPolar, 1e-6) && camera.position.y >= 0.5, `phi=${rig.phi.toFixed(4)} y=${camera.position.y.toFixed(2)}`);
+  run(240, 'orbit-up', () => rig.orbit(0, -0.05));
+  check('orbit toward straight-down clamps at minPolar', near(rig.phi, LIMITS.minPolar, 1e-6), `phi=${rig.phi.toFixed(4)}`);
+  run(200, 'orbit-mixed', () => rig.orbit(-0.04, 0.03));
+  settle();
+
+  // pan: a full-viewport-height drag moves the target by 2 * d * tan(fov/2)
+  {
+    const before = rig.target.clone();
+    const d = rig.distance;
+    rig.pan(0, H, H);
+    settle();
+    const moved = rig.target.distanceTo(before);
+    const expected = 2 * d * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    check('pan scale ~ 2·d·tan(fov/2) per viewport height', near(moved, expected, expected * 0.01), `moved=${moved.toFixed(2)} expected=${expected.toFixed(2)}`);
+    check('pan keeps target height', near(rig.target.y, before.y, 1e-9));
+    rig.pan(-3000, 2500, H);
+    rig.pan(900, -4000, H);
+    settle();
+    check('extreme pans stay finite and level', [rig.target.x, rig.target.z].every(Number.isFinite) && near(rig.target.y, before.y, 1e-9));
+  }
+
+  // zoom / dolly to the extremes
+  run(60, 'zoom-in', () => rig.zoom(0.7));
+  settle();
+  check('zoom in clamps at minDistance', near(rig.distance, LIMITS.minDistance, 1e-6), rig.distance.toFixed(3));
+  run(60, 'zoom-out', () => rig.zoom(1.5));
+  settle();
+  check('zoom out clamps at maxDistance', near(rig.distance, LIMITS.maxDistance, 1e-6), rig.distance.toFixed(3));
+  rig.dolly(-100000); settle();
+  check('dolly(-huge) -> minDistance', near(rig.distance, LIMITS.minDistance, 1e-6));
+  rig.dolly(100000); settle();
+  check('dolly(+huge) -> maxDistance', near(rig.distance, LIMITS.maxDistance, 1e-6));
+  {
+    const d0 = rig.distance;
+    rig.dolly(-100); settle();
+    check('dolly(-100px) zooms in by exp(-0.15)', near(rig.distance, d0 * Math.exp(-100 * 0.0015), 1e-6), rig.distance.toFixed(3));
+  }
+
+  // focus: tween to a point / distance, including a point below the floor
+  {
+    const pt = new THREE.Vector3(10, 2, -5);
+    rig.focus(pt, 20, true);
+    const movingAtStart = rig.update(1 / 60);
+    rig.applyToCamera(); invariants('focus');
+    run(120, 'focus');
+    check('focus tweens target + distance in ~0.6s', movingAtStart && rig.target.distanceTo(pt) < 1e-2 && near(rig.distance, 20, 1e-2), `dist=${rig.distance.toFixed(3)} err=${rig.target.distanceTo(pt).toExponential(2)}`);
+    rig.focus(new THREE.Vector3(0, -4, 0), 6, true);
+    run(120, 'focus-below-floor');
+    check('focus below the floor clamps target.y to 0 and keeps camera >= 0.5', rig.target.y === 0 && camera.position.y >= 0.5, `y=${camera.position.y.toFixed(3)}`);
+    rig.focus(new THREE.Vector3(3, 1, 3));
+    run(120, 'focus-keep-distance');
+    check('focus without distance keeps the distance', near(rig.distance, 6, 1e-6));
+  }
+
+  // home
+  rig.home(true);
+  run(120, 'home');
+  check('home(true) tweens back to the home view', rig.target.distanceTo(HOME.target) < 1e-2 && near(rig.distance, HOME.distance, 1e-2) && near(wrap(rig.theta), HOME.theta, 1e-3) && near(rig.phi, HOME.phi, 1e-3), `theta=${wrap(rig.theta).toFixed(3)}`);
+  check('update() returns false once settled', settle() < 600 && !rig.update(1 / 60) && !rig.update(1 / 60));
+
+  // cinematic: 2 seconds, then cancel
+  {
+    let completed = 0;
+    const theta0 = rig.theta;
+    rig.startCinematic({ center: new THREE.Vector3(0, 2, 0), radius: 40, height: 18, duration: 8, onComplete: () => { completed++; } });
+    check('isCinematic() after start', rig.isCinematic());
+    let monotonic = true, prev = rig.theta;
+    run(120, 'cinematic', () => { if (rig.theta < prev - 1e-9) monotonic = false; prev = rig.theta; });
+    const expectedDistance = Math.hypot(40, 16);
+    check('cinematic orbits after 2s (theta advances monotonically, on the orbit path)', rig.isCinematic() && monotonic && rig.theta - theta0 > 0.2 && near(rig.distance, expectedDistance, 0.5) && rig.target.distanceTo(new THREE.Vector3(0, 2, 0)) < 0.5, `dθ=${(rig.theta - theta0).toFixed(3)} d=${rig.distance.toFixed(2)}`);
+    const posBefore = camera.position.clone();
+    rig.cancelCinematic();
+    const stillMoving = rig.update(1 / 60);
+    rig.applyToCamera();
+    check('cancelCinematic stops immediately, leaves camera in place, no onComplete', !rig.isCinematic() && !stillMoving && camera.position.distanceTo(posBefore) < 1e-9 && completed === 0);
+
+    const thetaStart = rig.theta;
+    rig.startCinematic({ center: new THREE.Vector3(0, 2, 0), radius: 30, height: 14, duration: 1, onComplete: () => { completed++; } });
+    run(90, 'cinematic-full');
+    settle();
+    check('full cinematic completes once and turns 360°', completed === 1 && !rig.isCinematic() && near(rig.theta - thetaStart, 2 * Math.PI, 0.05), `dθ=${(rig.theta - thetaStart).toFixed(3)}`);
+  }
+
+  // reduced motion: tweens finish immediately, cinematic runs 4x
+  {
+    rig.reducedMotion = true;
+    rig.orbit(1, 0.2); settle();
+    rig.home(true);
+    const st = rig.getState();
+    const snapped = st.target.distanceTo(HOME.target) < 1e-9 && near(st.distance, HOME.distance, 1e-9) && near(wrap(st.theta), HOME.theta, 1e-9) && near(st.phi, HOME.phi, 1e-9);
+    check('reducedMotion: home() snaps immediately and is settled', snapped && !rig.update(1 / 60));
+    let completed = 0;
+    rig.startCinematic({ center: new THREE.Vector3(0, 2, 0), radius: 30, height: 14, duration: 4, onComplete: () => { completed++; } });
+    run(66, 'cinematic-reduced');
+    check('reducedMotion: 4s cinematic completes in ~1s', completed === 1 && !rig.isCinematic());
+    rig.reducedMotion = false;
+  }
+
+  // eye-height clamp beyond the polar clamp (rig with a permissive maxPolar and tiny distances)
+  {
+    const cam2 = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    const rig2 = createCameraRig(cam2, { minDistance: 2, maxDistance: 50, maxPolar: 1.55 });
+    rig2.setState({ target: new THREE.Vector3(0, 0, 0), distance: 2, theta: 0, phi: 1.55 });
+    rig2.applyToCamera();
+    let ok = cam2.position.y >= 0.5 - 1e-9 && rig2.target.y === 0;
+    for (let i = 0; i < 120 && ok; i++) { rig2.orbit(0.1, 0.2); rig2.update(1 / 60); rig2.applyToCamera(); ok = cam2.position.y >= 0.5 - 1e-9; }
+    check('camera height >= 0.5 even when maxPolar would allow lower', ok && rig2.phi < 1.55, `phi=${rig2.phi.toFixed(4)} y=${cam2.position.y.toFixed(3)}`);
+  }
+
+  // settle, onChange and getState/setState
+  settle();
+  {
+    const c0 = changeCount;
+    for (let i = 0; i < 10; i++) { rig.update(1 / 60); rig.applyToCamera(); }
+    check('onChange fires only when the camera moved', changeCount > 0 && changeCount === c0, `total=${changeCount}`);
+    rig.setState({ target: { x: 4, y: -2, z: 1 }, distance: 500, theta: 1, phi: 3 });
+    rig.applyToCamera();
+    const s = rig.getState();
+    check('setState clamps and snaps; getState reflects it', s.target.y === 0 && s.distance === 240 && s.phi === 1.45 && near(s.theta, 1, 1e-12) && changeCount === c0 + 1 && !rig.update(1 / 60));
+  }
+  check('programmer errors throw', throws(() => rig.orbit(NaN, 0)) && throws(() => rig.zoom(0)) && throws(() => rig.pan(1, 1, 0)) && throws(() => createCameraRig(null)) && throws(() => ctx.fitShadowsTo({})) && throws(() => rig.startCinematic({ center: new THREE.Vector3(), radius: 0, height: 1, duration: 1 })));
+  check(`no invariant violations over ${steps} steps`, violations === 0, `${violations} violations`);
+
+  // ---------------------------------------------------------------- render scheduling
+  rig.home(false);
+  rig.applyToCamera();
+  {
+    const before = renderer.info.render.frame;
+    for (let i = 0; i < 10; i++) ctx.requestRender();
+    await nextFrame(); await nextFrame();
+    const rendered = renderer.info.render.frame - before;
+    check('requestRender coalesces 10 calls into exactly 1 render', rendered === 1, `${rendered} render(s)`);
+    for (let i = 0; i < 6; i++) await nextFrame();
+    check('renderer does not keep looping', renderer.info.render.frame - before === 1, `${renderer.info.render.frame - before} total`);
+  }
+
+  // a disposable second scene
+  {
+    const c2 = document.createElement('canvas');
+    let ok = true;
+    try { const ctx2 = createScene(c2); ctx2.setSize(64, 64); ctx2.render(); ctx2.dispose(); } catch (e) { ok = false; console.log('dispose error', e); }
+    check('second scene renders and disposes cleanly', ok);
+  }
+
+  // ---------------------------------------------------------------- final frame + background pixel
+  ctx.render();
+  {
+    const probe = document.createElement('canvas');
+    probe.width = 4; probe.height = 4;
+    const g = probe.getContext('2d');
+    g.drawImage(canvas, 2, 2, 4, 4, 0, 0, 4, 4);
+    const px = g.getImageData(0, 0, 1, 1).data;
+    const bg = [0xf4, 0xef, 0xe7];
+    const close = bg.every((v, i) => Math.abs(px[i] - v) <= 8);
+    check('top-left pixel is the warm off-white background', close, `rgb(${px[0]}, ${px[1]}, ${px[2]})`);
+  }
+  window.__harness = { done: true, results, violations, steps, failures: results.filter((r) => !r.ok).length };
+</script>
