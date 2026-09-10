@@ -241,7 +241,7 @@ export function duplicateEntity(ws, id, offset = { x: 1, z: 1 } | { u: 1 }) // -
 export function setRoom(ws, { polygon, wallHeight, wallIds })   // replaces the room; keeps wall entities whose wallId still exists (clamps u/v),
                                                                  // drops wall entities whose wall vanished, leaves floor entities in place
 export function touch(ws)                                    // updates meta.updatedAt
-export function entityWorldTransform(ws, entity)             // -> { position: {x,y,z}, rotationY: radians } for floor and wall entities (wall: world position of the bottom-center contact point, rotationY = atan2 of the wall frame)
+export function entityWorldTransform(ws, entity)             // -> { position: {x,y,z}, rotationY: radians } for floor and wall entities (wall: world position of the bottom-center contact point, rotationY = Math.atan2(frame.normal.x, frame.normal.z), which maps local +X onto frame.dir and local +Z onto the inward normal under the three.js rotation convention)
 ```
 
 ---
@@ -375,7 +375,7 @@ SceneContext = {
   fitShadowsTo(bounds)   // adjust the sun shadow camera to the room bounds
 }
 ```
-Renderer: antialias, `toneMapping = ACESFilmicToneMapping`, `toneMappingExposure ≈ 1.05`, `outputColorSpace = SRGBColorSpace`, `shadowMap.enabled = true`, `shadowMap.type = PCFSoftShadowMap`, `pixelRatio = min(devicePixelRatio, 2)`, background `PALETTE.offwhite`, faint fog toward the background.
+Renderer: antialias, `toneMapping = ACESFilmicToneMapping`, `toneMappingExposure ≈ 1.05`, `outputColorSpace = SRGBColorSpace`, `shadowMap.enabled = true`, `shadowMap.type = PCFShadowMap` (r186 removed the soft variant; softness comes from `sun.shadow.radius`), `pixelRatio = min(devicePixelRatio, 2)`, background `PALETTE.offwhite`, faint fog toward the background.
 `requestRender()` schedules a single `requestAnimationFrame`; the renderer never loops continuously on its own.
 
 ## `src/render/cameraRig.js`
@@ -407,7 +407,7 @@ RoomView = {
   floorMesh,                                // pickable, userData = { kind: 'floor', pickable: true }
   walls: { [wallId]: { group, faceMesh, frame, attachGroup } },
   //   faceMesh: pickable inner face (PlaneGeometry length × height) with userData { kind: 'wall', wallId, pickable: true }
-  //   attachGroup: THREE.Group positioned at the wall start vertex, rotated so local +X = frame.dir, local +Z = frame.normal, local +Y up.
+  //   attachGroup: THREE.Group positioned at the wall start vertex, rotation.y = Math.atan2(frame.normal.x, frame.normal.z) so local +X = frame.dir, local +Z = frame.normal, local +Y up.
   //                Wall entities are added here at position (u, v, 0).
   setWallFade(wallId, faded, immediate = false), // fades the wall group (face, thickness, and all attachGroup children) to opacity ~0.08 and
                                                 //   sets userData.pickable = false on faded meshes; smooth 180 ms tween (returns true while animating)

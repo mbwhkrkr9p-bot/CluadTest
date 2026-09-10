@@ -1,6 +1,6 @@
 // Hardware keyboard shortcuts. Ignored while typing in form controls or when a dialog is open
 // (Escape still closes dialogs / cancels placement).
-export function createKeyboard(studio, { palette, toasts, onEscape, getOpenDialog }) {
+export function createKeyboard(studio, { palette, toasts, onEscape, getOpenDialog, input }) {
   function isTyping(target) {
     if (!target) return false;
     const tag = target.tagName;
@@ -22,6 +22,7 @@ export function createKeyboard(studio, { palette, toasts, onEscape, getOpenDialo
       return;
     }
     if (dialog || isTyping(e.target)) return;
+    if (input && input.isBusy()) return; // never mutate history mid-gesture
 
     if (mod && key === 'z' && !e.shiftKey) { e.preventDefault(); if (!studio.undo()) toasts.announce('Nothing to undo'); return; }
     if ((mod && key === 'z' && e.shiftKey) || (mod && key === 'y')) { e.preventDefault(); if (!studio.redo()) toasts.announce('Nothing to redo'); return; }

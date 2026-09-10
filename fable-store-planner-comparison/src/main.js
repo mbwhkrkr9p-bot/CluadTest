@@ -76,7 +76,7 @@ function boot() {
   const hud = createHud(studio, { toasts });
   const portrait = createPortraitNotice({ notice: $('portrait-notice'), continueBtn: $('portrait-continue') });
   createKeyboard(studio, {
-    palette, toasts,
+    palette, toasts, input,
     getOpenDialog: () => (floorPlan.isOpen() ? 'floorplan' : newSpace.isOpen() ? 'newspace' : null),
     onEscape: () => {
       if (studio.getMode() === 'finish' && studio.getSelection().kind === 'none') { finishPanel.close(); return true; }

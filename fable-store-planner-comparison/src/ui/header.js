@@ -40,13 +40,36 @@ export function createHeader(studio, { toasts, onFinishes, onFloorPlan, onNewSpa
   heightDec.addEventListener('click', () => commitHeight(studio.getState().room.wallHeight - 0.5));
   heightInc.addEventListener('click', () => commitHeight(studio.getState().room.wallHeight + 0.5));
 
+  // Inline rename: the name button becomes a text input until Enter / blur (Escape cancels).
   nameBtn.addEventListener('click', () => {
     const current = studio.getState().name;
-    const next = window.prompt('Space name', current);
-    if (next !== null && next.trim() && next.trim() !== current) {
-      studio.renameWorkspace(next.trim());
-      toasts.announce(`Renamed to ${next.trim()}`);
-    }
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'workspace-name workspace-name--editing';
+    input.value = current;
+    input.maxLength = 60;
+    input.setAttribute('aria-label', 'Space name');
+    let done = false;
+    const finish = (commitValue) => {
+      if (done) return;
+      done = true;
+      const next = commitValue ? input.value.trim() : current;
+      input.replaceWith(nameBtn);
+      if (next && next !== current) {
+        studio.renameWorkspace(next);
+        toasts.announce(`Renamed to ${next}`);
+      }
+      refresh();
+      nameBtn.focus({ preventScroll: true });
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+    nameBtn.replaceWith(input);
+    input.focus();
+    input.select();
   });
 
   btnFinishes.addEventListener('click', () => onFinishes());

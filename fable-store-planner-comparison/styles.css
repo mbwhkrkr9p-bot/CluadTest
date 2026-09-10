@@ -577,6 +577,7 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 }
 
 .workspace-name:hover { background: var(--tint); border-color: var(--hairline); }
+.workspace-name--editing { width: 200px; max-width: 40vw; cursor: text; background: #fff; border-color: var(--amber); outline: none; box-shadow: 0 0 0 3px rgba(224, 163, 59, 0.25); }
 
 .save-status {
   font-size: 12px;

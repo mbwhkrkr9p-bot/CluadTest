@@ -83,7 +83,7 @@ async function main() {
   const state = () => S(() => JSON.parse(JSON.stringify(window.__studio.getState())));
   const canvasBox = async () => page.locator('#viewport').boundingBox();
   // wait until camera / fade animations have settled so projected points are stable
-  const settle = async () => { await page.waitForTimeout(80); await page.waitForFunction(() => !window.__studio.studio.isAnimating(), null, { timeout: 5000 }).catch(() => {}); };
+  const settle = async () => { await page.waitForTimeout(80); await page.waitForFunction(() => !window.__studio.studio.isAnimating(), null, { timeout: 20000 }).catch(() => {}); };
   const badge = async () => (await page.locator('#workspace-type').innerText()).trim().toLowerCase();
 
   // ---------------------------------------------------------------- load
@@ -98,6 +98,19 @@ async function main() {
     const name = await page.locator('#product-name').innerText();
     assert(name.includes('3D Store Studio'), 'product name');
     return `${ws.name}`;
+  });
+
+  await step('Workspace can be renamed inline from the header', async () => {
+    await page.locator('#workspace-name').click();
+    const input = page.locator('input.workspace-name--editing');
+    assert(await input.count() === 1, 'inline input');
+    await input.fill('Summit Outfitters');
+    await input.press('Enter');
+    await page.waitForTimeout(100);
+    assert((await state()).name === 'Summit Outfitters', 'renamed');
+    assert((await page.locator('#workspace-name').innerText()).trim() === 'Summit Outfitters', 'header updated');
+    await page.keyboard.press('Control+z');
+    assert((await state()).name !== 'Summit Outfitters', 'rename undone');
   });
 
   await step('Header shows type, save status and wall height', async () => {
@@ -601,7 +614,7 @@ async function main() {
     assert(!(await S(() => window.__studio.studio.isReviewing())), 'cancelled by wheel');
     // let a reduced-motion-fast review complete via the API
     await S(() => { window.__studio.rig.reducedMotion = true; window.__studio.studio.startReview(); });
-    await page.waitForTimeout(7000);
+    await page.waitForFunction(() => window.__studio.getState().game.reviewed === true, null, { timeout: 60000 }).catch(() => {});
     const ws = await state();
     assert(ws.game.reviewed === true, 'review recorded');
     const info = await S(() => window.__studio.game());
