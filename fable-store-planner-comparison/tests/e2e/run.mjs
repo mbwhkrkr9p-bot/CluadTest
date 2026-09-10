@@ -371,6 +371,61 @@ async function main() {
     assert(moved.position.u - moved.width / 2 >= 0 && moved.position.u + moved.width / 2 <= 40, 'within wall');
   });
 
+  await step('Regressions: grab above the base does not jump; history buttons reachable; details fields validate', async () => {
+    // 1) grabbing a tall fixture near its top must not make it leap at drag start
+    await S(() => window.__studio.select({ kind: 'none' }));
+    await settle();
+    const rack = await S(() => window.__studio.place('four-way-rack', 4, 4));
+    await S(() => window.__studio.select({ kind: 'none' }));
+    await settle();
+    const top = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, e.height * 0.9, e.position.z); }, rack.id);
+    await page.mouse.move(top.x, top.y);
+    await page.mouse.down();
+    await page.mouse.move(top.x + 6, top.y, { steps: 3 });
+    const during = await S((id) => window.__studio.getState().entities.find((x) => x.id === id).position, rack.id);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    assert(Math.hypot(during.x - rack.position.x, during.z - rack.position.z) <= 1.0, `no jump at drag start: moved ${Math.hypot(during.x - rack.position.x, during.z - rack.position.z).toFixed(2)} ft`);
+    // 2) floating Undo/Redo must be the element under the pointer at the iPad-landscape viewport
+    const undoBox = await page.locator('#btn-undo').boundingBox();
+    const hitEl = await S(([x, y]) => { const el = document.elementFromPoint(x, y); return el && (el.id === 'btn-undo' || el.closest('#btn-undo')) ? 'undo' : (el ? el.id || el.className : 'none'); }, [undoBox.x + undoBox.width / 2, undoBox.y + undoBox.height / 2]);
+    assert(hitEl === 'undo', `undo button reachable (got ${hitEl})`);
+    // 3) an emptied details field reverts instead of committing zero
+    await S((id) => window.__studio.select({ kind: 'entity', id }), rack.id);
+    await page.waitForTimeout(150);
+    const before = (await state()).entities.find((e) => e.id === rack.id);
+    await page.locator('#details-body input[data-key="x"]').fill('');
+    await page.locator('#details-body input[data-key="x"]').press('Enter');
+    await page.waitForTimeout(150);
+    const afterEmpty = (await state()).entities.find((e) => e.id === rack.id);
+    assert(near(afterEmpty.position.x, before.position.x), 'empty field left position unchanged');
+    assert((await page.locator('#details-body input[data-key="x"]').inputValue()) !== '', 'field restored');
+    // 4) rotation typed in the details field keeps the footprint inside the room
+    const table = await S(() => window.__studio.place('display-table', 17.5, 12.5));
+    await S(([id]) => window.__studio.studio.moveEntity(id, { x: 18, z: 12.75 }), [table.id]);
+    await S((id) => window.__studio.select({ kind: 'entity', id }), table.id);
+    await page.waitForTimeout(150);
+    await page.locator('#details-body input[data-key="rotation"]').fill('45');
+    await page.locator('#details-body input[data-key="rotation"]').press('Enter');
+    await page.waitForTimeout(150);
+    const rotated = (await state()).entities.find((e) => e.id === table.id);
+    const oob = await S((id) => window.__studio.collisions().outOfBounds.has(id), table.id);
+    assert(near(rotated.rotation, 45) && !oob, `rotated footprint stays inside (rot ${rotated.rotation}, oob ${oob})`);
+    // 5) a refused resize puts the real value back into the field
+    const shelf = await S(() => window.__studio.place('custom-shelf', -6, -6));
+    await S((id) => window.__studio.select({ kind: 'entity', id }), shelf.id);
+    await page.waitForTimeout(150);
+    await page.locator('#details-body input[data-key="width"]').fill('12');
+    await page.locator('#details-body input[data-key="width"]').press('Enter');
+    await page.waitForTimeout(150);
+    const w = (await state()).entities.find((e) => e.id === shelf.id).width;
+    const fieldVal = await page.locator('#details-body input[data-key="width"]').inputValue();
+    assert(near(Number(fieldVal), w), `field (${fieldVal}) matches model (${w})`);
+    // clean up the extra fixtures so later steps see the expected counts
+    await S(([a, b, c]) => { for (const id of [a, b, c]) window.__studio.studio.removeEntity(id); }, [rack.id, table.id, shelf.id]);
+    await S(() => window.__studio.select({ kind: 'none' }));
+  });
+
   // ---------------------------------------------------------------- resize
   await step('Custom Shelf dimensions and levels update the geometry', async () => {
     const shelf = await S(() => window.__studio.place('custom-shelf', 10, 8));

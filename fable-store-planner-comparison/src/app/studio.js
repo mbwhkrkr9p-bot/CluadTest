@@ -399,9 +399,17 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
   function rotateEntity(id, rotation) {
     const e = getEntity(id);
     if (!e || e.anchor !== 'floor') return false;
+    const rot = G.snapAngle(rotation, 15);
+    const obb = { ...entityObb(e), rotation: rot };
+    // keep the rotated footprint inside the room: nudge the centre if needed, refuse if it cannot fit
+    const pos = G.obbInsidePolygon(obb, ws.room.polygon)
+      ? { x: e.position.x, z: e.position.z }
+      : G.clampObbToPolygon(obb, ws.room.polygon, { x: e.position.x, z: e.position.z });
+    if (!pos) return false;
     return commit('Rotate', (w) => {
       const t = State.getEntity(w, id);
-      t.rotation = G.snapAngle(rotation, 15);
+      t.rotation = rot;
+      t.position = pos;
       w.game.arranged = true;
     });
   }

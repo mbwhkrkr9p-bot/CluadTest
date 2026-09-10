@@ -76,6 +76,15 @@ export function createPicker({ camera, canvas, roomView, entityViews, gizmos }) 
     return hit ? out : null;
   }
 
+  /** Intersection with a horizontal plane at height y (used to drag at the grab height without parallax). */
+  function planePoint(y, clientX, clientY) {
+    setRay(clientX, clientY);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -y);
+    const out = new THREE.Vector3();
+    const hit = raycaster.ray.intersectPlane(plane, out);
+    return hit ? out : null;
+  }
+
   /** Intersection with a wall's infinite plane; returns wall-local { u, v } or null. */
   function wallPoint(frame, clientX, clientY) {
     setRay(clientX, clientY);
@@ -93,5 +102,5 @@ export function createPicker({ camera, canvas, roomView, entityViews, gizmos }) 
     return pick(clientX, clientY, { entities: false, gizmos: false });
   }
 
-  return { pick, floorPoint, wallPoint, surfaceAt, raycaster };
+  return { pick, floorPoint, planePoint, wallPoint, surfaceAt, raycaster };
 }

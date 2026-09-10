@@ -38,9 +38,12 @@ export function createDetails(studio, { toasts, onFinishes, onFloorPlan }) {
     input.step = String(step);
     input.value = fmt(value);
     input.addEventListener('change', () => {
-      const v = Number(input.value);
-      if (!Number.isFinite(v)) { input.value = fmt(value); return; }
-      onCommit(v);
+      const raw = input.value.trim();
+      const v = Number(raw);
+      if (raw === '' || !Number.isFinite(v)) { input.value = fmt(value); return; }
+      const ok = onCommit(v);
+      // a refused edit (returns false) leaves the model untouched, so put the real value back
+      if (ok === false) input.value = fmt(value);
     });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
     const unitEl = document.createElement('span');
@@ -154,18 +157,26 @@ export function createDetails(studio, { toasts, onFinishes, onFloorPlan }) {
       body.append(
         numberField('X', 'x', entity.position.x, { step: 0.5, onCommit: (v) => {
           const pos = studio.resolveFloorPosition(entity, v, entity.position.z);
-          if (pos) studio.moveEntity(entity.id, pos); else toasts.show('That position does not fit inside the room.', { kind: 'warning' });
+          if (pos) return studio.moveEntity(entity.id, pos);
+          toasts.show('That position does not fit inside the room.', { kind: 'warning' });
+          return false;
         } }),
         numberField('Z', 'z', entity.position.z, { step: 0.5, onCommit: (v) => {
           const pos = studio.resolveFloorPosition(entity, entity.position.x, v);
-          if (pos) studio.moveEntity(entity.id, pos); else toasts.show('That position does not fit inside the room.', { kind: 'warning' });
+          if (pos) return studio.moveEntity(entity.id, pos);
+          toasts.show('That position does not fit inside the room.', { kind: 'warning' });
+          return false;
         } }),
-        numberField('Rotation', 'rotation', entity.rotation || 0, { min: 0, max: 345, step: 15, unit: '°', onCommit: (v) => studio.rotateEntity(entity.id, v) }),
+        numberField('Rotation', 'rotation', entity.rotation || 0, { min: 0, max: 345, step: 15, unit: '°', onCommit: (v) => {
+          const ok = studio.rotateEntity(entity.id, v);
+          if (!ok) toasts.show('That rotation does not fit inside the room.', { kind: 'warning' });
+          return ok;
+        } }),
       );
     } else {
       body.append(paragraph(`On ${studio.wallLabel(entity.parent)}`));
       body.append(
-        numberField('Along wall', 'u', entity.position.u, { step: 0.5, onCommit: (v) => studio.moveEntity(entity.id, { u: v }) }),
+        numberField('Along wall', 'u', entity.position.u, { step: 0.5, onCommit: (v) => studio.moveEntity(entity.id, { u: v }) || false }),
       );
       if (entity.type !== 'door') {
         body.append(numberField(entity.type === 'window' ? 'Sill height' : 'Height above floor', 'v', entity.position.v, { step: 0.5, onCommit: (v) => studio.moveEntity(entity.id, { v }) }));
@@ -180,12 +191,16 @@ export function createDetails(studio, { toasts, onFinishes, onFloorPlan }) {
     for (const key of resizable) {
       const [min, max] = def.resizable[key];
       body.append(numberField(labels[key], key, entity[key], { min, max, step: 0.5, onCommit: (v) => {
-        if (!studio.resizeEntity(entity.id, { [key]: v })) toasts.show('That size does not fit here.', { kind: 'warning' });
+        const ok = studio.resizeEntity(entity.id, { [key]: v });
+        if (!ok) toasts.show('That size does not fit here.', { kind: 'warning' });
+        return ok;
       } }));
     }
     for (const [key, p] of params) {
       body.append(numberField(p.label, `meta.${key}`, entity.meta?.[key] ?? p.default, { min: p.min, max: p.max, step: p.step, unit: key === 'spacing' ? 'ft (0 = even)' : '', onCommit: (v) => {
-        if (!studio.resizeEntity(entity.id, { meta: { [key]: v } })) toasts.show('That configuration does not fit.', { kind: 'warning' });
+        const ok = studio.resizeEntity(entity.id, { meta: { [key]: v } });
+        if (!ok) toasts.show('That configuration does not fit.', { kind: 'warning' });
+        return ok;
       } }));
     }
 

@@ -1212,12 +1212,13 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 /* ------------------------------------------------------------------ history */
 .history {
   position: absolute;
-  left: calc(var(--gap) + var(--safe-l));
+  /* sits just right of the left panel column so it is never covered by the Build Kit */
+  left: calc(var(--gap) * 2 + var(--safe-l) + var(--panel-w));
   bottom: calc(var(--gap) + var(--safe-b));
   display: flex;
   gap: 4px;
   padding: 4px;
-  z-index: 4;
+  z-index: 6;
 }
 
 .history .icon-btn { border-color: transparent; background: transparent; }
@@ -1653,6 +1654,7 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
   .hud__brief { font-size: 12px; }
 
   .history {
+    left: calc(var(--gap) + var(--safe-l));
     bottom: auto;
     top: var(--gap);
   }

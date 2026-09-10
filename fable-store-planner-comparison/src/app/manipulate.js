@@ -23,6 +23,8 @@ export function createManipulator(studio) {
     const before = studio.beginEdit();
     const ws = studio.getState();
     const poly = ws.room.polygon;
+    // Drag on the horizontal plane through the grab point: no parallax jump when grabbing above the base.
+    const grabY = hit.point ? Math.max(0, Math.min(hit.point.y, entity.height)) : 0;
     const hitFloor = hit.point ? { x: hit.point.x, z: hit.point.z } : { x: entity.position.x, z: entity.position.z };
     const offset = { x: entity.position.x - hitFloor.x, z: entity.position.z - hitFloor.z };
     let lastValid = { x: entity.position.x, z: entity.position.z };
@@ -57,7 +59,7 @@ export function createManipulator(studio) {
     }
 
     function move(clientX, clientY) {
-      const fp = picker.floorPoint(clientX, clientY);
+      const fp = picker.planePoint(grabY, clientX, clientY);
       if (!fp) return;
       const e = studio.getEntity(id);
       if (!e) return;
