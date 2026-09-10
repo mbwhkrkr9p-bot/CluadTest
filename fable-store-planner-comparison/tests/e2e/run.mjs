@@ -351,7 +351,7 @@ async function main() {
 
   await step('Wall fixture drags along its wall with direct manipulation', async () => {
     const ws0 = await state();
-    const panel = ws0.entities.find((e) => e.type === 'slatwall-panel');
+    const panel = ws0.entities.find((e) => e.type === 'pegboard-panel'); // sits mid-wall, clear of the side panels
     await S(() => window.__studio.select({ kind: 'none' }));
     await settle();
     // grab low on the panel face: the top of the back wall can sit under the HUD at the home distance
@@ -362,7 +362,7 @@ async function main() {
     }, panel.id);
     const under = await S(([x, y]) => document.elementFromPoint(x, y)?.id, [p.x, p.y]);
     assert(under === 'viewport', `grab point is on the canvas (got ${under})`);
-    const target = await S(() => { const w = window.__studio.studio.getWall('w0'); return window.__studio.project(w.start.x + w.dir.x * 15, 2.5, w.start.z + w.dir.z * 15); });
+    const target = await S(() => { const w = window.__studio.studio.getWall('w0'); return window.__studio.project(w.start.x + w.dir.x * 30, 2.5, w.start.z + w.dir.z * 30); });
     await page.mouse.move(p.x, p.y);
     await page.mouse.down();
     await page.mouse.move(p.x + 8, p.y, { steps: 2 });

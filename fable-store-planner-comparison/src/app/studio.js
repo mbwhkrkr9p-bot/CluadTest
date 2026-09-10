@@ -436,9 +436,17 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
   function moveEntity(id, position) {
     const e = getEntity(id);
     if (!e) return false;
+    let next = { ...e.position, ...position };
+    if (e.anchor === 'wall') {
+      next = clampWallEntity(ws, e, next);
+    } else {
+      const pos = G.clampObbToPolygon({ ...entityObb(e), x: next.x, z: next.z }, ws.room.polygon, { x: e.position.x, z: e.position.z });
+      if (!pos) return false;
+      next = pos;
+    }
     return commit('Move', (w) => {
       const t = State.getEntity(w, id);
-      t.position = { ...t.position, ...position };
+      t.position = next;
       w.game.arranged = true;
     });
   }
