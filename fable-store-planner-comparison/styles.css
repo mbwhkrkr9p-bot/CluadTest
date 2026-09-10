@@ -274,14 +274,13 @@ button.link {
   text-decoration: underline;
   text-underline-offset: 3px;
   border-radius: var(--radius-xs);
-  min-height: 32px;
+  min-height: 38px;
 }
 
 /* ------------------------------------------------------------------ inputs */
-input[type="text"],
-input[type="search"],
-input[type="number"],
-select {
+/* Base element styles live in :where() so component classes (.search__input, .stepper__input, …)
+   can override them without specificity games. */
+:where(input[type="text"], input[type="search"], input[type="number"], select) {
   min-height: var(--control-h);
   padding: 0 10px;
   border: 1px solid var(--hairline-strong);
@@ -292,10 +291,7 @@ select {
   transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
 }
 
-input[type="text"]:hover,
-input[type="search"]:hover,
-input[type="number"]:hover,
-select:hover { border-color: var(--charcoal); }
+:where(input[type="text"], input[type="search"], input[type="number"], select):hover { border-color: var(--charcoal); }
 
 input:focus-visible,
 select:focus-visible { outline-offset: 0; border-color: var(--amber); }
@@ -360,10 +356,10 @@ select {
   gap: 0 14px;
 }
 
-.field-row .field { grid-template-columns: minmax(0, 1fr) minmax(70px, 96px) auto; }
+.field-row .field { grid-template-columns: auto minmax(60px, 1fr) auto; }
 
 /* range inputs */
-input[type="range"] {
+:where(input[type="range"]) {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -441,7 +437,7 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 .seg > button {
   flex: 1 1 0;
   min-width: 0;
-  min-height: 36px;
+  min-height: 38px;
   padding: 0 10px;
   border: 0;
   border-radius: 9px;
@@ -471,8 +467,8 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 }
 
 .tab {
-  min-height: 34px;
-  padding: 0 13px;
+  min-height: 38px;
+  padding: 0 12px;
   border-radius: 999px;
   border-color: transparent;
   background: transparent;
@@ -483,11 +479,21 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 .tab:hover { background: var(--tint); }
 .tab[aria-selected="true"] { background: var(--charcoal); color: #fff; }
 
+/* the four finish tabs share one row */
+#finish-tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+#finish-tabs .tab { padding: 0 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
 /* chips */
 .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 
 .chip {
-  min-height: 36px;
+  min-height: 38px;
   padding: 0 12px;
   border: 1px solid var(--hairline-strong);
   border-radius: 999px;
@@ -528,14 +534,14 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
   justify-content: space-between;
   gap: 8px 14px;
   margin: calc(var(--gap) + var(--safe-t)) calc(var(--gap) + var(--safe-r)) 0 calc(var(--gap) + var(--safe-l));
-  padding: 7px 10px 7px 14px;
+  padding: 7px 8px 7px 14px;
 }
 
 .topbar__group {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 10px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -543,7 +549,6 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
   width: 1px;
   height: 22px;
   background: var(--hairline-strong);
-  margin: 0 2px;
 }
 
 .product-name {
@@ -557,8 +562,8 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 }
 
 .workspace-name {
-  min-height: 34px;
-  padding: 0 10px;
+  min-height: 36px;
+  padding: 0 8px;
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
@@ -596,26 +601,25 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 .save-status[data-status="error"]::before { background: var(--terracotta); }
 .save-status:empty::before { display: none; }
 
-.topbar__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.topbar__actions { display: flex; flex-wrap: wrap; gap: 5px; }
 
 /* wall height stepper */
 .stepper {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .stepper__label {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink-2);
-  margin-right: 4px;
+  margin-right: 3px;
   white-space: nowrap;
 }
 
 .stepper__btn {
-  width: 36px;
-  min-height: 36px;
+  width: var(--control-h);
   padding: 0;
   border-radius: 10px;
   font-size: 18px;
@@ -623,14 +627,13 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 }
 
 .stepper__input {
-  width: 58px;
-  min-height: 36px;
-  padding: 0 6px;
+  width: 54px;
+  padding: 0 4px;
   text-align: center;
   font-weight: 600;
 }
 
-.stepper__suffix { font-size: 12px; color: var(--ink-3); margin-left: 2px; }
+.stepper__suffix { font-size: 12px; color: var(--ink-3); margin-left: 1px; }
 
 /* ------------------------------------------------------------------ side panels */
 .panel {
@@ -715,17 +718,18 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 
 .panel__footer .btn { flex: 1 1 0; }
 
-/* collapsed: only the toggle remains (as a small pill) */
-.panel.is-collapsed { width: auto; max-height: none; }
-.panel.is-collapsed .panel__header { padding: 6px; }
-.panel.is-collapsed .panel__title,
-.panel.is-collapsed .panel__subtitle,
-.panel.is-collapsed .panel__body,
-.panel.is-collapsed .panel__footer,
-.panel.is-collapsed .details__back { display: none; }
-.panel.is-collapsed .panel__toggle { width: auto; padding: 0 8px 0 12px; }
-.panel.is-collapsed .panel__toggle-text { display: inline; }
+/* collapsed: body and footer fold away; the Build Kit shrinks to its toggle pill,
+   the Details panel keeps its header row (title + Back + toggle) */
+.panel.is-collapsed > .panel__body,
+.panel.is-collapsed > .panel__scroll,
+.panel.is-collapsed > .panel__footer { display: none; }
 .panel.is-collapsed .panel__toggle-icon { transform: rotate(180deg); }
+
+#build-kit.is-collapsed { width: auto; max-height: none; }
+#build-kit.is-collapsed .panel__header { padding: 6px; }
+#build-kit.is-collapsed .panel__title { display: none; }
+#build-kit.is-collapsed .panel__toggle { width: auto; padding: 0 8px 0 12px; }
+#build-kit.is-collapsed .panel__toggle-text { display: inline; }
 
 /* search box */
 .search { position: relative; }
@@ -754,7 +758,7 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
   justify-content: space-between;
   gap: 8px;
   margin: 0 0 10px;
-  padding: 8px 6px 8px 12px;
+  padding: 4px 4px 4px 12px;
   border-radius: var(--radius-sm);
   background: var(--amber-soft);
   color: var(--brown);
@@ -979,7 +983,7 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 38px;
+  min-height: 40px;
   padding: 3px 12px 3px 4px;
   border: 1px solid var(--hairline-strong);
   border-radius: 999px;
@@ -1099,19 +1103,23 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 
 .hud__top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 
+/* objectives are instructions: let them wrap to two lines rather than truncate */
 .hud__objective {
   font-weight: 700;
   font-size: 14px;
+  line-height: 1.3;
   letter-spacing: -0.01em;
   min-width: 0;
+  padding-top: 2px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .hud__objective.is-warning { color: var(--terracotta); }
@@ -1617,6 +1625,7 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 
   .topbar { gap: 6px 10px; padding: 6px 8px; }
   .topbar__tools { flex: 1 1 100%; justify-content: space-between; }
+  .topbar__tools .topbar__divider { display: none; }
   .topbar__actions .btn { padding: 0 10px; font-size: 12.5px; }
   .stepper__label { display: none; }
 
@@ -1672,6 +1681,13 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
   }
 
   .panel--right { z-index: 8; }
+
+  /* the HUD sits to the right of the undo / redo group instead of under it */
+  .hud {
+    left: calc(var(--gap) * 2 + 96px + var(--safe-l));
+    transform: none;
+    max-width: calc(100% - 96px - var(--gap) * 3);
+  }
 
   .hud__top { flex-wrap: wrap; }
   .choice-grid { grid-template-columns: 1fr; }
