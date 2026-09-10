@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 const page = readFileSync('src/page.html', 'utf8');
 const esc = (js) => js.replace(/<\/script/gi, '<\\/script');
 const inline = (name) => `<script>\n${esc(readFileSync(`src/${name}.js`, 'utf8'))}\n</script>`;
-let out = page.replace('<!--@aero-->', () => inline('aero')).replace('<!--@objects-->', () => inline('objects')).replace('<!--@app-->', () => inline('app'));
+let out = page.replace('<!--@aero-->', () => inline('aero')).replace('<!--@objects-->', () => inline('objects')).replace('<!--@foam-->', () => inline('foam')).replace('<!--@app-->', () => inline('app'));
 mkdirSync('dist', { recursive: true });
 writeFileSync('dist/index.html', out);
 const full = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n<meta name="color-scheme" content="light dark">\n</head>\n<body>\n${out}\n</body>\n</html>\n`;

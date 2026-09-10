@@ -54,6 +54,23 @@ Sample meshes exercise the same path: the playing card as a 0.3 mm slab, a cube,
 paper dart as an open surface, and the trainer glider built as one solid. `node test/mesh.js` drops each
 at three resolutions; `node test/mcard.js` compares the mesh card with the panel card at three densities.
 
+## The solid foam glider
+
+`src/foam.js` builds a moulded foam chuck glider as one watertight mesh. The shape is a signed-distance
+field: a body-of-revolution fuselage, a NACA 4412 wing lofted with taper, sweep, dihedral and incidence,
+a NACA 0012 tailplane and fin, joined with a smooth union so the roots blend like foam. The surface is
+extracted with surface nets on a rectilinear grid (finer across the fuselage and fin), which is closed
+and connected by construction; the Model panel's resolution setting picks the carving grid.
+
+For closed solids the aerodynamics work on mid-surface elements: every skin triangle finds the triangle
+facing back at it through the material and the pair becomes a plate element on the camber surface, so a
+thick airfoil is treated the way thin-airfoil theory treats it. Triangles with nothing thin behind them
+(the nose, blunt edges) stay bluff facets. Places where pairs cross in two directions are bodies, which
+form their own regions. Lifting regions get strip-wise chords, an aspect ratio from span over median
+chord, and a zero-lift angle and quarter-chord moment integrated from the section slopes with the
+thin-airfoil weights. `node test/camber.js` checks an isolated NACA 4412 wing against theory;
+`node test/foam.js` carves the glider at three grid levels and flies it.
+
 ## Gliders
 
 `src/objects.js` holds a parametric glider (span, chord, taper, sweep, dihedral, incidence, wing position,

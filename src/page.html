@@ -201,9 +201,11 @@
     <details id="aboutPanel">
       <summary>How it works</summary>
       <p class="foot">Drag to orbit, pinch or scroll to zoom, double-tap the view to stop following. Space bar drops.</p>
-      <p class="foot">Any 3D model can be dropped in as one mesh (STL or OBJ, binary or text). Every triangle becomes an aerodynamic
-        element; connected, near-coplanar triangles are grouped into flat regions so a wing carved from a solid still gets a wing's
-        pressure distribution and aspect ratio. Blunt edges with a long body behind them get the drag reduction of a reattaching
+      <p class="foot">Any 3D model can be dropped in as one mesh (STL or OBJ, binary or text). In a closed solid each triangle finds the
+        triangle facing back at it through the material, and the pair becomes a mid-surface element: a thick wing is handled as its
+        camber surface, the way thin-airfoil theory does, with its zero-lift angle and pitching moment integrated from the section's
+        slopes. Where nothing thin lies behind a triangle (a nose, a blunt edge) it stays a bluff facet. Mid-surface elements are
+        grouped into lifting regions with strip-wise chords, so a wing blended into a body keeps the wing's chord and aspect ratio. Blunt edges with a long body behind them get the drag reduction of a reattaching
         wake. Raising the resolution subdivides the mesh so the local wind, and the body's spin, are sampled more finely. Mass is
         spread through the volume of a closed solid or over the surface of an open shell, and the inertia tensor is integrated
         exactly from the triangles. Nose ballast is a point mass at the model's front-most vertex.</p>
@@ -220,4 +222,5 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.158.0/three.min.js"></script>
 <!--@aero-->
 <!--@objects-->
+<!--@foam-->
 <!--@app-->

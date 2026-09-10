@@ -413,7 +413,7 @@
     const o = Object.assign({ size: 20, mass: 20, res: 0, airfoil: 0, ballast: 0, zUp: false, name: 'Model', color: 0xB7C4D6, launch: { speed: 0, pitch: 15, roll: 10, spin: 0.5 }, viewDist: null, turbulence: 0 }, opts);
     let mesh = A.normalizeMesh(base, o.size * 0.01, o.zUp);
     let faces = mesh.indices.length / 3, res = 0;
-    while (res < o.res && faces * 4 <= 12000) { mesh = A.subdivide(mesh, 1); faces *= 4; res++; }
+    if (!o.noSubdivide) while (res < o.res && faces * 4 <= 12000) { mesh = A.subdivide(mesh, 1); faces *= 4; res++; }
     return {
       name: o.name, kind: 'mesh', mesh, meshOpts: { mass: o.mass * 0.001, suction: o.airfoil, cd90: 1.3, stallDeg: 13, cf: 0.015, wake: 0.3, ballast: o.ballast * 0.001 },
       launch: o.launch, viewDist: o.viewDist || Math.max(0.6, o.size * 0.01 * 2.8), turbulence: o.turbulence, visual: { color: o.color, mesh: true },

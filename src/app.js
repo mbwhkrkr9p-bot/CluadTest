@@ -110,7 +110,7 @@
     if (O.CATALOG[state.selected]) return O.CATALOG[state.selected].make();
     if (isMesh()) {
       const m = state.model;
-      return O.meshSpec(state.modelBase, { size: m.size, mass: m.mass, ballast: m.ballast, airfoil: m.airfoil, res: m.res, zUp: m.zUp,
+      return O.meshSpec(state.modelBase, { size: m.size, mass: m.mass, ballast: m.ballast, airfoil: m.airfoil, res: m.res, zUp: m.zUp, noSubdivide: m.gridRes,
         name: m.name, color: m.color, launch: m.launch || { speed: 0, pitch: state.angle, roll: 0, spin: 0.3 }, turbulence: m.turbulence });
     }
     const preset = O.GLIDER_PRESETS[state.selected];
@@ -386,9 +386,9 @@
     if (O.GLIDER_PRESETS[key]) { state.design = Object.assign({}, O.GLIDER_PRESETS[key]); syncDesignSliders(); }
     if (O.MESH_CATALOG[key]) {
       const e = O.MESH_CATALOG[key];
-      state.modelBase = e.base();
-      Object.assign(state.model, { size: e.size, mass: e.mass, ballast: e.ballast || 0, airfoil: e.airfoil, res: e.res, zUp: false, name: e.label, color: e.color, launch: e.launch, turbulence: e.turbulence || 0 });
-    }
+      Object.assign(state.model, { size: e.size, mass: e.mass, ballast: e.ballast || 0, airfoil: e.airfoil, res: e.res, zUp: false, name: e.label, color: e.color, launch: e.launch, turbulence: e.turbulence || 0, gridRes: !!e.gridRes });
+      state.modelBase = e.gridRes ? e.base(state.model.res) : e.base();
+    } else state.model.gridRes = false;
     if (key === 'upload') state.modelBase = state.uploadBase || state.modelBase;
     if (isMesh()) { state.uploadBase = key === 'upload' ? state.modelBase : state.uploadBase; syncModelSliders(); }
     $('#designPanel').style.display = isGlider() ? '' : 'none';
@@ -490,12 +490,18 @@
         const v = parseFloat(inp.value);
         state.model[P.key] = P.log ? +Math.pow(10, v).toPrecision(3) : v;
         w.querySelector('output').textContent = fmtModel(P, state.model[P.key]);
-        clearTimeout(modelTimer); modelTimer = setTimeout(restage, P.key === 'res' ? 0 : 120);
+        clearTimeout(modelTimer);
+        modelTimer = setTimeout(() => {
+          if (P.key === 'res' && state.model.gridRes && O.MESH_CATALOG[state.selected]) {   // carved models: re-carve on a finer grid
+            toast('Carving foam…');
+            setTimeout(() => { state.modelBase = O.MESH_CATALOG[state.selected].base(Math.min(2, state.model.res)); restage(); }, 30);
+          } else restage();
+        }, P.key === 'res' ? 0 : 120);
       });
     }
     const stats = document.createElement('p'); stats.className = 'foot'; stats.id = 'modelInfo'; modelEl.appendChild(stats);
   }
-  const fmtModel = (P, v) => P.key === 'res' ? `${v} (${v === 0 ? 'as built' : '×' + Math.pow(4, v) + ' faces'})` : `${(+v).toFixed(v < 10 ? 1 : 0)} ${P.unit}`.trim();
+  const fmtModel = (P, v) => P.key === 'res' ? (state.model.gridRes ? ['coarse grid', 'medium grid', 'fine grid', 'fine grid'][v] : `${v} (${v === 0 ? 'as built' : '×' + Math.pow(4, v) + ' faces'})`) : `${(+v).toFixed(v < 10 ? 1 : 0)} ${P.unit}`.trim();
   function syncModelSliders() {
     for (const P of MODEL) {
       const inp = document.getElementById('m_' + P.key); if (!inp) continue;
@@ -513,7 +519,7 @@
     el.textContent = `${M.n} faces · ${M.closed ? 'solid' : 'shell'} · ` + (tr.alpha == null ? (tr.dive ? 'dives' : 'no glide') : `glides ${tr.glide.toFixed(1)} : 1 at ${tr.V.toFixed(1)} m/s`);
     el.className = 'stat ' + (tr.alpha == null ? '' : 'good');
     const info = $('#modelInfo');
-    if (info) info.textContent = `${M.n} triangles in ${M.clusters.length} flat regions · ${M.closed ? 'closed solid' : 'open surface, both sides in the air'} · volume ${(pr.volume * 1e6).toFixed(pr.volume * 1e6 < 10 ? 2 : 0)} cm³ · surface ${(pr.area * 1e4).toFixed(0)} cm² · ${(b.mass * 1000).toFixed(1)} g` +
+    if (info) info.textContent = `${M.nFacets} triangles · ${M.closed ? `${M.paired} paired into mid-surface elements, ${M.clusters.length} regions` : `${M.clusters.length} regions, both sides in the air`} · ${M.closed ? 'closed solid' : 'open surface'} · volume ${(pr.volume * 1e6).toFixed(pr.volume * 1e6 < 10 ? 2 : 0)} cm³ · surface ${(pr.area * 1e4).toFixed(0)} cm² · ${(b.mass * 1000).toFixed(1)} g` +
       (tr.alpha == null ? ' · no stable lifting trim: it will not glide as is (try nose ballast, or none).' : ` · trims at ${tr.alpha.toFixed(1)}° angle of attack, ${tr.V.toFixed(1)} m/s, lift/drag ${tr.glide.toFixed(1)}.`);
     syncAir();
   }

@@ -209,9 +209,11 @@
     <details id="aboutPanel">
       <summary>How it works</summary>
       <p class="foot">Drag to orbit, pinch or scroll to zoom, double-tap the view to stop following. Space bar drops.</p>
-      <p class="foot">Any 3D model can be dropped in as one mesh (STL or OBJ, binary or text). Every triangle becomes an aerodynamic
-        element; connected, near-coplanar triangles are grouped into flat regions so a wing carved from a solid still gets a wing's
-        pressure distribution and aspect ratio. Blunt edges with a long body behind them get the drag reduction of a reattaching
+      <p class="foot">Any 3D model can be dropped in as one mesh (STL or OBJ, binary or text). In a closed solid each triangle finds the
+        triangle facing back at it through the material, and the pair becomes a mid-surface element: a thick wing is handled as its
+        camber surface, the way thin-airfoil theory does, with its zero-lift angle and pitching moment integrated from the section's
+        slopes. Where nothing thin lies behind a triangle (a nose, a blunt edge) it stays a bluff facet. Mid-surface elements are
+        grouped into lifting regions with strip-wise chords, so a wing blended into a body keeps the wing's chord and aspect ratio. Blunt edges with a long body behind them get the drag reduction of a reattaching
         wake. Raising the resolution subdivides the mesh so the local wind, and the body's spin, are sampled more finely. Mass is
         spread through the volume of a closed solid or over the surface of an open shell, and the inertia tensor is integrated
         exactly from the triangles. Nose ballast is a point mass at the model's front-most vertex.</p>
@@ -674,7 +676,7 @@
     const om = len(body.omega) * body.ext + 0.2;
     const tauRot = Math.min(body.I[0], body.I[4], body.I[8]) / (RHO * body.areaTotal * (V + om) * body.ext * body.ext * 0.5 + 1e-12);
     const tau = Math.min(tauLin, tauRot);
-    const n = clamp(Math.ceil(dt / Math.min(1 / 600, tau / 6)), 1, 80);
+    const n = clamp(Math.ceil(dt / Math.min(1 / 240, tau / 6)), 1, 80);   // heavy bodies need fewer sub-steps
     const h = dt / n;
     let last = null;
     for (let i = 0; i < n; i++) {
@@ -893,19 +895,18 @@
     const flip = props.closed && volS < 0;
     const idx = new Uint32Array(I.length);
     for (let f = 0; f < nF; f++) { idx[f * 3] = I[f * 3]; idx[f * 3 + 1] = flip ? I[f * 3 + 2] : I[f * 3 + 1]; idx[f * 3 + 2] = flip ? I[f * 3 + 1] : I[f * 3 + 2]; }
-    const cx = new Float64Array(nF), cy = new Float64Array(nF), cz = new Float64Array(nF);
-    const nx = new Float64Array(nF), ny = new Float64Array(nF), nz = new Float64Array(nF), area = new Float64Array(nF);
+    const fcx = new Float64Array(nF), fcy = new Float64Array(nF), fcz = new Float64Array(nF);
+    const fnx = new Float64Array(nF), fny = new Float64Array(nF), fnz = new Float64Array(nF), farea = new Float64Array(nF);
     for (let f = 0; f < nF; f++) {
-      let a = I[f * 3], b = I[f * 3 + 1], c = I[f * 3 + 2];
-      if (flip) { const t = b; b = c; c = t; }
+      const a = idx[f * 3], b = idx[f * 3 + 1], c = idx[f * 3 + 2];
       const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2], bx = P[b * 3], by = P[b * 3 + 1], bz = P[b * 3 + 2], qx = P[c * 3], qy = P[c * 3 + 1], qz = P[c * 3 + 2];
-      cx[f] = (ax + bx + qx) / 3; cy[f] = (ay + by + qy) / 3; cz[f] = (az + bz + qz) / 3;
+      fcx[f] = (ax + bx + qx) / 3; fcy[f] = (ay + by + qy) / 3; fcz[f] = (az + bz + qz) / 3;
       const ux = bx - ax, uy = by - ay, uz = bz - az, vx = qx - ax, vy = qy - ay, vz = qz - az;
-      let Nx = uy * vz - uz * vy, Ny = uz * vx - ux * vz, Nz = ux * vy - uy * vx;
+      const Nx = uy * vz - uz * vy, Ny = uz * vx - ux * vz, Nz = ux * vy - uy * vx;
       const l = Math.sqrt(Nx * Nx + Ny * Ny + Nz * Nz) || 1e-12;
-      area[f] = 0.5 * l; nx[f] = Nx / l; ny[f] = Ny / l; nz[f] = Nz / l;
+      farea[f] = 0.5 * l; fnx[f] = Nx / l; fny[f] = Ny / l; fnz[f] = Nz / l;
     }
-    // mass properties (o.mass is the shell/solid mass; ballast is a point mass added on top)
+    // ---- mass properties (o.mass is the shell/solid mass; ballast is a point mass added on top)
     const mass = o.mass;
     let com = [0, 0, 0];
     const Iten = [0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -914,12 +915,12 @@
       Iten[1] -= m * x * y; Iten[3] -= m * x * y; Iten[2] -= m * x * z; Iten[6] -= m * x * z; Iten[5] -= m * y * z; Iten[7] -= m * y * z;
     };
     if (props.closed && props.volume > 1e-12) {
-      // solid: integrate tetrahedra (origin, a, b, c) with the canonical covariance formulas
+      // solid: integrate tetrahedra (origin, a, b, c)
       const rho = mass / props.volume;
       let mx = 0, my = 0, mz = 0;
       const cov = [0, 0, 0, 0, 0, 0]; // xx yy zz xy yz zx
       for (let f = 0; f < nF; f++) {
-        let a = I[f * 3], b = I[f * 3 + 1], c = I[f * 3 + 2]; if (flip) { const t = b; b = c; c = t; }
+        const a = idx[f * 3], b = idx[f * 3 + 1], c = idx[f * 3 + 2];
         const x1 = P[a * 3], y1 = P[a * 3 + 1], z1 = P[a * 3 + 2], x2 = P[b * 3], y2 = P[b * 3 + 1], z2 = P[b * 3 + 2], x3 = P[c * 3], y3 = P[c * 3 + 1], z3 = P[c * 3 + 2];
         const det = x1 * (y2 * z3 - z2 * y3) - y1 * (x2 * z3 - z2 * x3) + z1 * (x2 * y3 - y2 * x3);
         const v = det / 6;
@@ -935,7 +936,6 @@
       }
       const V = props.volume;
       com = [mx / V, my / V, mz / V];
-      // inertia about origin then shift to COM
       Iten[0] = rho * (cov[1] + cov[2]); Iten[4] = rho * (cov[0] + cov[2]); Iten[8] = rho * (cov[0] + cov[1]);
       Iten[1] = Iten[3] = -rho * cov[3]; Iten[5] = Iten[7] = -rho * cov[4]; Iten[2] = Iten[6] = -rho * cov[5];
       const [x, y, z] = com;
@@ -945,9 +945,9 @@
       // shell: mass spread by area
       const tot = props.area || 1;
       let mx = 0, my = 0, mz = 0;
-      for (let f = 0; f < nF; f++) { const m = mass * area[f] / tot; mx += m * cx[f]; my += m * cy[f]; mz += m * cz[f]; }
+      for (let f = 0; f < nF; f++) { const m = mass * farea[f] / tot; mx += m * fcx[f]; my += m * fcy[f]; mz += m * fcz[f]; }
       com = [mx / mass, my / mass, mz / mass];
-      for (let f = 0; f < nF; f++) addPoint(cx[f] - com[0], cy[f] - com[1], cz[f] - com[2], mass * area[f] / tot);
+      for (let f = 0; f < nF; f++) addPoint(fcx[f] - com[0], fcy[f] - com[1], fcz[f] - com[2], mass * farea[f] / tot);
     }
     // ballast: a point mass (nose weight). Default position: the most forward point of the model.
     const points = [];
@@ -957,7 +957,6 @@
       if (!bp) { let best = -Infinity, bi = 0; for (let i = 0; i < P.length; i += 3) if (P[i] > best) { best = P[i]; bi = i; } bp = [P[bi], P[bi + 1], P[bi + 2]]; }
       const mb = o.ballast;
       const cNew = [(com[0] * mass + bp[0] * mb) / (mass + mb), (com[1] * mass + bp[1] * mb) / (mass + mb), (com[2] * mass + bp[2] * mb) / (mass + mb)];
-      // move the body inertia to the new COM (parallel axis), then add the point mass
       const dx = com[0] - cNew[0], dy = com[1] - cNew[1], dz = com[2] - cNew[2];
       Iten[0] += mass * (dy * dy + dz * dz); Iten[4] += mass * (dx * dx + dz * dz); Iten[8] += mass * (dx * dx + dy * dy);
       Iten[1] -= mass * dx * dy; Iten[3] -= mass * dx * dy; Iten[2] -= mass * dx * dz; Iten[6] -= mass * dx * dz; Iten[5] -= mass * dy * dz; Iten[7] -= mass * dy * dz;
@@ -965,42 +964,151 @@
       points.push({ p: [bp[0] - cNew[0], bp[1] - cNew[1], bp[2] - cNew[2]], m: mb });
       com = cNew; totalMass = mass + mb;
     }
-    for (let f = 0; f < nF; f++) { cx[f] -= com[0]; cy[f] -= com[1]; cz[f] -= com[2]; }
+    for (let f = 0; f < nF; f++) { fcx[f] -= com[0]; fcy[f] -= com[1]; fcz[f] -= com[2]; }
     const verts = new Float64Array(P.length);
     for (let i = 0; i < P.length; i += 3) { verts[i] = P[i] - com[0]; verts[i + 1] = P[i + 1] - com[1]; verts[i + 2] = P[i + 2] - com[2]; }
     const maxI = Math.max(Iten[0], Iten[4], Iten[8]) || 1e-9;
     for (const k of [0, 4, 8]) Iten[k] = Math.max(Iten[k], 0.02 * maxI);
     const m3inv = (m) => { const [a, b, c, d, e, f, g, h, i] = m; const A_ = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g; const s = 1 / (a * A_ + b * B + c * C); return [A_ * s, -(b * i - c * h) * s, (b * f - c * e) * s, B * s, (a * i - c * g) * s, -(a * f - c * d) * s, C * s, -(a * h - b * g) * s, (a * e - b * d) * s]; };
-    // clusters: connected facets with normals within clusterDeg
-    const cluster = new Int32Array(nF).fill(-1);
+    let ext = 0;
+    for (let i = 0; i < verts.length; i += 3) ext = Math.max(ext, Math.hypot(verts[i], verts[i + 1], verts[i + 2]));
+
+    // ---- facet adjacency (shared edges)
     const edgeFaces = new Map();
     for (let f = 0; f < nF; f++) for (let e = 0; e < 3; e++) {
-      const p = I[f * 3 + e], q = I[f * 3 + (e + 1) % 3]; const key = p < q ? p + '_' + q : q + '_' + p;
+      const p = idx[f * 3 + e], q = idx[f * 3 + (e + 1) % 3]; const key = p < q ? p + '_' + q : q + '_' + p;
       let arr = edgeFaces.get(key); if (!arr) { arr = []; edgeFaces.set(key, arr); } arr.push(f);
     }
-    const adj = Array.from({ length: nF }, () => []);
-    for (const arr of edgeFaces.values()) for (const f of arr) for (const g of arr) if (f !== g) adj[f].push(g);
+    const fadj = Array.from({ length: nF }, () => []);
+    for (const arr of edgeFaces.values()) for (const f of arr) for (const g of arr) if (f !== g) fadj[f].push(g);
+
+    // ---- aerodynamic elements.
+    // Open shell: every facet is a two-sided plate element.
+    // Closed solid: each facet looks for the nearest facet facing back at it through the solid. If it
+    // finds one within reach, the facet becomes a mid-surface plate element carrying half the pair's
+    // area — a thin part (wing, fin, slab, slender body) is thereby represented by its camber surface,
+    // which is what thin-airfoil theory works with. Facets with nothing thin behind them (a nose, a
+    // blunt leading edge, a cube face) stay bluff facets. Pairing is not exclusive, so it cannot be
+    // spoiled by the order facets are visited in.
+    const pairOf = new Int32Array(nF).fill(-1);
+    if (props.closed && nF > 0) {
+      const T = 0.2 * ext, hc = Math.max(ext / 24, 1e-4);
+      const hash = new Map();
+      for (let f = 0; f < nF; f++) { const key = Math.floor(fcx[f] / hc) + ',' + Math.floor(fcy[f] / hc) + ',' + Math.floor(fcz[f] / hc); let arr = hash.get(key); if (!arr) { arr = []; hash.set(key, arr); } arr.push(f); }
+      for (let i = 0; i < nF; i++) {
+        let best = -1, bestS = T;
+        const rad = Math.sqrt(farea[i]) * 1.2;
+        const nb = Math.min(3, Math.ceil(rad / hc));
+        for (let s = hc * 0.5; s <= T; s += hc * 0.5) {
+          const qx = fcx[i] - fnx[i] * s, qy = fcy[i] - fny[i] * s, qz = fcz[i] - fnz[i] * s;
+          const ci = Math.floor(qx / hc), cj = Math.floor(qy / hc), ck = Math.floor(qz / hc);
+          for (let di = -nb; di <= nb; di++) for (let dj = -nb; dj <= nb; dj++) for (let dk = -nb; dk <= nb; dk++) {
+            const arr = hash.get((ci + di) + ',' + (cj + dj) + ',' + (ck + dk)); if (!arr) continue;
+            for (const j of arr) {
+              if (j === i) continue;
+              if (fnx[i] * fnx[j] + fny[i] * fny[j] + fnz[i] * fnz[j] > -0.64) continue;      // must face back toward us
+              const wx = fcx[j] - fcx[i], wy = fcy[j] - fcy[i], wz = fcz[j] - fcz[i];
+              const along = -(wx * fnx[i] + wy * fny[i] + wz * fnz[i]);                          // depth behind facet i
+              if (along <= 0 || along >= bestS) continue;
+              const px = wx + fnx[i] * along, py = wy + fny[i] * along, pz = wz + fnz[i] * along;   // offset from the ray
+              if (px * px + py * py + pz * pz > rad * rad) continue;
+              best = j; bestS = along;
+            }
+          }
+          if (best >= 0 && bestS <= s + hc) break;
+        }
+        pairOf[i] = best;
+      }
+    }
+    const nE = nF;
+    const cx = new Float64Array(nE), cy = new Float64Array(nE), cz = new Float64Array(nE);
+    const nx = new Float64Array(nE), ny = new Float64Array(nE), nz = new Float64Array(nE), area = new Float64Array(nE);
+    const kind = new Uint8Array(nE), f0 = new Int32Array(nE), f1 = new Int32Array(nE), thick = new Float64Array(nE);
+    for (let e = 0; e < nE; e++) {
+      const a = e, b = pairOf[e];
+      f0[e] = a; f1[e] = b;
+      if (b >= 0) {
+        cx[e] = (fcx[a] + fcx[b]) / 2; cy[e] = (fcy[a] + fcy[b]) / 2; cz[e] = (fcz[a] + fcz[b]) / 2;
+        let Nx = fnx[a] - fnx[b], Ny = fny[a] - fny[b], Nz = fnz[a] - fnz[b];
+        const l = Math.sqrt(Nx * Nx + Ny * Ny + Nz * Nz) || 1e-12;
+        nx[e] = Nx / l; ny[e] = Ny / l; nz[e] = Nz / l; area[e] = farea[a] / 2; kind[e] = 0;
+        thick[e] = Math.abs((fcx[a] - fcx[b]) * fnx[a] + (fcy[a] - fcy[b]) * fny[a] + (fcz[a] - fcz[b]) * fnz[a]);
+      } else {
+        cx[e] = fcx[a]; cy[e] = fcy[a]; cz[e] = fcz[a]; nx[e] = fnx[a]; ny[e] = fny[a]; nz[e] = fnz[a]; area[e] = farea[a]; kind[e] = props.closed ? 1 : 0;
+      }
+    }
+    // Body elements: where pairs cross in two directions through the same volume (a fuselage has
+    // top-bottom and side-side pairs meeting on its axis) the part is a body, not a surface. Bodies
+    // keep plate physics but form their own regions, so they never lend a wing their length.
+    if (props.closed) {
+      const hb = Math.max(ext / 40, 1e-4), hash = new Map();
+      const key = (x, y, z) => Math.floor(x / hb) + ',' + Math.floor(y / hb) + ',' + Math.floor(z / hb);
+      for (let e = 0; e < nE; e++) if (kind[e] === 0) { const k = key(cx[e], cy[e], cz[e]); let arr = hash.get(k); if (!arr) { arr = []; hash.set(k, arr); } arr.push(e); }
+      const body = new Uint8Array(nE);
+      for (let e = 0; e < nE; e++) {
+        if (kind[e] !== 0) continue;
+        const r = 0.6 * thick[e] + hb, nb = Math.min(3, Math.ceil(r / hb));
+        const ci = Math.floor(cx[e] / hb), cj = Math.floor(cy[e] / hb), ck = Math.floor(cz[e] / hb);
+        let found = false;
+        for (let di = -nb; di <= nb && !found; di++) for (let dj = -nb; dj <= nb && !found; dj++) for (let dk = -nb; dk <= nb && !found; dk++) {
+          const arr = hash.get((ci + di) + ',' + (cj + dj) + ',' + (ck + dk)); if (!arr) continue;
+          for (const g of arr) {
+            if (g === e) continue;
+            const dx = cx[g] - cx[e], dy = cy[g] - cy[e], dz = cz[g] - cz[e];
+            if (dx * dx + dy * dy + dz * dz > r * r) continue;
+            if (Math.abs(nx[g] * nx[e] + ny[g] * ny[e] + nz[g] * nz[e]) < 0.5) { found = true; break; }
+          }
+        }
+        if (found) body[e] = 1;
+      }
+      for (let e = 0; e < nE; e++) if (body[e]) kind[e] = 2;
+    }
+    // element adjacency = facet adjacency
+    const adj = fadj;
+    // ---- regions: connected elements of the same kind with normals within clusterDeg of the seed.
+    // Surface regions may bridge across a few body elements (a wing crossing a fuselage stays one wing).
+    const cluster = new Int32Array(nE).fill(-1);
     const cosTol = Math.cos(o.clusterDeg * DEG);
     const clusters = [];
-    for (let f = 0; f < nF; f++) {
-      if (cluster[f] >= 0) continue;
-      const id = clusters.length, faces = [f], stack = [f]; cluster[f] = id;
-      // grow while the facet normal stays close to the seed's normal (keeps a curved surface from becoming one plate)
-      while (stack.length) { const g = stack.pop(); for (const h of adj[g]) { if (cluster[h] >= 0) continue; if (nx[h] * nx[f] + ny[h] * ny[f] + nz[h] * nz[f] >= cosTol) { cluster[h] = id; faces.push(h); stack.push(h); } } }
+    const hops = new Int32Array(nE);
+    for (let e = 0; e < nE; e++) {
+      if (cluster[e] >= 0) continue;
+      const id = clusters.length, faces = [e], stack = [e]; cluster[e] = id;
+      const visited = new Set([e]);
+      while (stack.length) {
+        const g = stack.pop();
+        for (const h of adj[g]) {
+          if (visited.has(h)) continue;
+          let d = nx[h] * nx[e] + ny[h] * ny[e] + nz[h] * nz[e];
+          if (kind[e] === 0 && kind[h] === 2) {              // bridge through a body element without adding it
+            if (Math.abs(d) < cosTol) continue;
+            const hp = hops[g] + 1; if (hp > 6) continue;
+            visited.add(h); hops[h] = hp; stack.push(h); continue;
+          }
+          if (kind[h] !== kind[e] || cluster[h] >= 0) continue;
+          if (kind[e] !== 1 && d < 0) { nx[h] = -nx[h]; ny[h] = -ny[h]; nz[h] = -nz[h]; d = -d; }   // two-sided: flip to agree with the seed
+          if (d < cosTol) continue;
+          cluster[h] = id; faces.push(h); stack.push(h); visited.add(h); hops[h] = 0;
+        }
+      }
       let ax = 0, ay = 0, az = 0, ar = 0, Nx = 0, Ny = 0, Nz = 0;
       for (const g of faces) { ax += cx[g] * area[g]; ay += cy[g] * area[g]; az += cz[g] * area[g]; ar += area[g]; Nx += nx[g] * area[g]; Ny += ny[g] * area[g]; Nz += nz[g] * area[g]; }
       const nl = Math.sqrt(Nx * Nx + Ny * Ny + Nz * Nz) || 1e-12;
-      clusters.push({ faces: Int32Array.from(faces), cx: ax / ar, cy: ay / ar, cz: az / ar, nx: Nx / nl, ny: Ny / nl, nz: Nz / nl, area: ar });
+      clusters.push({ faces: Int32Array.from(faces), cx: ax / ar, cy: ay / ar, cz: az / ar, nx: Nx / nl, ny: Ny / nl, nz: Nz / nl, area: ar, kind: kind[e] });
     }
-    let ext = 0;
-    for (let i = 0; i < verts.length; i += 3) ext = Math.max(ext, Math.hypot(verts[i], verts[i + 1], verts[i + 2]));
-    const factor = props.closed ? 0.5 : 1;   // a closed solid's two skins share one plate's force
+    let plateArea = 0, bluffArea = 0, bodyArea = 0;
+    for (let e = 0; e < nE; e++) { if (kind[e] === 0) plateArea += area[e]; else if (kind[e] === 1) bluffArea += area[e]; else bodyArea += area[e]; }
     return {
       name: spec.name || 'Model', spec, mass: totalMass, com, I: Iten, Iinv: m3inv(Iten), subs: [], spheres: [], points, panels: [], panelsC: [],
-      mesh: { n: nF, cx, cy, cz, nx, ny, nz, area, cluster, clusters, verts, idx, closed: props.closed, factor, props, opts: o,
+      mesh: { n: nE, nFacets: nF, cx, cy, cz, nx, ny, nz, area, kind, f0, f1, thick, cluster, clusters, verts, idx, closed: props.closed, props, opts: o,
+        plateArea, bluffArea, bodyArea, paired: Array.from(pairOf).filter((v) => v >= 0).length,
         tmin: new Float64Array(clusters.length), tmax: new Float64Array(clusters.length), AR: new Float64Array(clusters.length), reatt: new Float64Array(clusters.length),
-        tx: new Float64Array(clusters.length), ty: new Float64Array(clusters.length), tz: new Float64Array(clusters.length) },
-      elemCount: nF, areaTotal: props.area * factor, ext, np: 0, meanChord: ext, liftArea: 0, staticMargin: null,
+        tx: new Float64Array(clusters.length), ty: new Float64Array(clusters.length), tz: new Float64Array(clusters.length),
+        rnx: new Float64Array(clusters.length), rny: new Float64Array(clusters.length), rnz: new Float64Array(clusters.length),
+        sinA0: new Float64Array(clusters.length), cm0: new Float64Array(clusters.length),
+        strip: new Int32Array(nE), stmin: new Float64Array(nE), stmax: new Float64Array(nE),   // per-element chord interval (its spanwise strip)
+        a0e: new Float64Array(nE), ARe: new Float64Array(nE), sinA0e: new Float64Array(nE) },   // per-element lift slope, aspect ratio, zero-lift angle
+      elemCount: nE, areaTotal: plateArea + bodyArea + bluffArea * 0.5, ext, np: 0, meanChord: ext, liftArea: 0, staticMargin: null,
       turbulence: spec.turbulence || 0,
       pos: [0, 0, 0], vel: [0, 0, 0], q: A.qIdentity(), omega: [0, 0, 0], landed: false, t: 0, stats: null, forces: null,
     };
@@ -1014,7 +1122,7 @@
       2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)];
   }
 
-  /** Aerodynamic force/torque of a mesh body (scalar math, no allocation in the facet loop). */
+  /** Aerodynamic force/torque of a mesh body (scalar math, no allocation in the element loop). */
   function meshForces(body, windFn, t, out, acc) {
     const M = body.mesh, o = M.opts, R = quatMat(body.q);
     const px = body.pos[0], py = body.pos[1], pz = body.pos[2];
@@ -1034,8 +1142,9 @@
       wv[i * 3] = gx; wv[i * 3 + 1] = gy; wv[i * 3 + 2] = gz;
       const pr = gx * fd[0] + gy * fd[1] + gz * fd[2]; if (pr > bodyMax) bodyMax = pr;
     }
-    const idx = M.idx;
-    // pass 1: per cluster, in-plane flow direction and extents
+    const idx = M.idx, f0 = M.f0, kind = M.kind;
+    const SB = M.stripBuf || (M.stripBuf = { min: new Float64Array(48), max: new Float64Array(48), chords: new Float64Array(48) });
+    // pass 1: per region, in-plane flow direction, extents, aspect ratio, reattachment, wake torque
     for (let k = 0; k < M.clusters.length; k++) {
       const C = M.clusters[k];
       const [rx, ry, rz] = rot(C.cx, C.cy, C.cz);
@@ -1045,18 +1154,16 @@
       const V = Math.sqrt(ax * ax + ay * ay + az * az);
       const nd = ax * nX + ay * nY + az * nZ;
       let tx = ax - nd * nX, ty = ay - nd * nY, tz = az - nd * nZ;
-      const tlFlow = Math.sqrt(tx * tx + ty * ty + tz * tz);   // in-plane airspeed at the cluster
+      const tlFlow = Math.sqrt(tx * tx + ty * ty + tz * tz);   // in-plane airspeed at the region
       let tl = tlFlow;
-      if (tl < 1e-9) { // flow dead-on: any in-plane direction
-        tx = -nY; ty = nX; tz = 0; tl = Math.sqrt(tx * tx + ty * ty); if (tl < 1e-9) { tx = 1; ty = 0; tz = 0; tl = 1; }
-      }
+      if (tl < 1e-9) { tx = -nY; ty = nX; tz = 0; tl = Math.sqrt(tx * tx + ty * ty); if (tl < 1e-9) { tx = 1; ty = 0; tz = 0; tl = 1; } }
       tx /= tl; ty /= tl; tz /= tl;
       const sx = nY * tz - nZ * ty, sy = nZ * tx - nX * tz, sz = nX * ty - nY * tx;
-      // exact region extents from the facets' vertices (resolution-independent)
+      // exact region extents from the source facets' vertices (resolution-independent)
       let tmin = Infinity, tmax = -Infinity, smin = Infinity, smax = -Infinity, cmax = -Infinity;
       const faces = C.faces;
       for (let j = 0; j < faces.length; j++) {
-        const f = faces[j];
+        const f = f0[faces[j]];
         for (let e = 0; e < 3; e++) {
           const vi = idx[f * 3 + e];
           const gx = wv[vi * 3], gy = wv[vi * 3 + 1], gz = wv[vi * 3 + 2];
@@ -1068,22 +1175,75 @@
       if (tmax - tmin < 1e-9) { tmin -= 1e-6; tmax += 1e-6; }
       if (smax - smin < 1e-9) { smin -= 1e-6; smax += 1e-6; }
       M.tmin[k] = tmin; M.tmax[k] = tmax; M.tx[k] = tx; M.ty[k] = ty; M.tz[k] = tz;
+      M.rnx[k] = nX; M.rny[k] = nY; M.rnz[k] = nZ;
       const L = (tmax - tmin) / 2, spanHalf = (smax - smin) / 2;
-      // Reattachment: a bluff face with a long body behind it (a slab's leading edge, a fuselage
-      // nose) sheds a wake that reattaches, and most of its pressure drag is recovered downstream.
-      // Scale the separated-flow force by the afterbody length over the face's smaller extent.
-      const h = Math.max(2 * Math.min(L, spanHalf), 1e-6);
-      const after = Math.max(0, bodyMax - cmax);
-      M.reatt[k] = 1 - 0.7 * smooth(0.5, 4, after / h);
-      const AR = clamp(spanHalf / L, 0.25, 12);
+      // Strip theory: the chord is local. The region is binned spanwise; each strip's chord interval
+      // comes from the vertices of the elements in it. Aspect ratio = span / median strip chord.
+      const nS = clamp(faces.length, 1, 48);
+      const sw = (smax - smin) / nS;
+      const st0 = SB.min, st1 = SB.max;
+      for (let q = 0; q < nS; q++) { st0[q] = Infinity; st1[q] = -Infinity; }
+      for (let j = 0; j < faces.length; j++) {
+        const el = faces[j], f = f0[el];
+        const gx = R[0] * M.cx[el] + R[1] * M.cy[el] + R[2] * M.cz[el], gy = R[3] * M.cx[el] + R[4] * M.cy[el] + R[5] * M.cz[el], gz = R[6] * M.cx[el] + R[7] * M.cy[el] + R[8] * M.cz[el];
+        const q = clamp(Math.floor(((gx * sx + gy * sy + gz * sz) - smin) / sw), 0, nS - 1);
+        M.strip[el] = q;
+        for (let e = 0; e < 3; e++) { const vi = idx[f * 3 + e]; const pt = wv[vi * 3] * tx + wv[vi * 3 + 1] * ty + wv[vi * 3 + 2] * tz; if (pt < st0[q]) st0[q] = pt; if (pt > st1[q]) st1[q] = pt; }
+      }
+      const chords = SB.chords; let nc = 0;
+      for (let q = 0; q < nS; q++) if (st1[q] > st0[q]) chords[nc++] = st1[q] - st0[q];
+      for (let j = 0; j < faces.length; j++) { const el = faces[j], q = M.strip[el]; let a_ = st0[q], b_ = st1[q]; if (b_ - a_ < 1e-9) { a_ -= 1e-6; b_ += 1e-6; } M.stmin[el] = a_; M.stmax[el] = b_; }
+      const sorted = Array.prototype.slice.call(chords, 0, nc).sort((x, y) => x - y);
+      const medianChord = nc ? sorted[nc >> 1] : 2 * L;
+      const AR = C.kind === 2 ? clamp(spanHalf / L, 0.25, 12) : clamp((2 * spanHalf) / Math.max(medianChord, 1e-6), 0.25, 12);
       M.AR[k] = AR;
-      // wake torque on separated flow (cluster level)
+      const a0R = 2 * Math.PI * AR / (AR + 2);
+      for (let j = 0; j < faces.length; j++) { const el = faces[j]; M.ARe[el] = AR; M.a0e[el] = a0R; }
+      // Thin-airfoil camber of a surface region: element slopes dz/dx along the flow give the zero-lift
+      // angle α0 = (1/π)∫ (dz/dx)(1 − cos θ) dθ and the quarter-chord moment cm = (π/4)(A2 − A1),
+      // with x = c/2·(1 − cos θ) from the leading edge. A flat slab gives zero for both.
+      M.sinA0[k] = 0; M.cm0[k] = 0;
+      if (C.kind === 0 && faces.length > 2) {
+        let I0 = 0, I1 = 0, I2 = 0, At = 0, Wt = 0;
+        for (let j = 0; j < faces.length; j++) {
+          const e = faces[j];
+          const enx = R[0] * M.nx[e] + R[1] * M.ny[e] + R[2] * M.nz[e], eny = R[3] * M.nx[e] + R[4] * M.ny[e] + R[5] * M.nz[e], enz = R[6] * M.nx[e] + R[7] * M.ny[e] + R[8] * M.nz[e];
+          const nN = enx * nX + eny * nY + enz * nZ; if (nN < 0.3) continue;
+          const slope = -(enx * tx + eny * ty + enz * tz) / nN;
+          const gx = R[0] * M.cx[e] + R[1] * M.cy[e] + R[2] * M.cz[e], gy = R[3] * M.cx[e] + R[4] * M.cy[e] + R[5] * M.cz[e], gz = R[6] * M.cx[e] + R[7] * M.cy[e] + R[8] * M.cz[e];
+          const xi = clamp(((gx * tx + gy * ty + gz * tz) - M.stmin[e]) / (M.stmax[e] - M.stmin[e]), 0.01, 0.99);
+          const wth = M.area[e] / Math.sqrt(xi * (1 - xi));      // dθ = dξ / √(ξ(1−ξ))
+          const cth = 1 - 2 * xi;
+          I0 += slope * (1 - cth) * wth; I1 += slope * cth * wth; I2 += slope * (2 * cth * cth - 1) * wth; At += M.area[e]; Wt += wth;
+        }
+        if (At > 0 && Wt > 0) {
+          const norm = Math.PI / Wt;                       // maps Σ(·)·wth onto ∫(·)dθ
+          const alpha0 = (I0 * norm) / Math.PI;
+          const A1 = (2 / Math.PI) * I1 * norm, A2 = (2 / Math.PI) * I2 * norm;
+          M.sinA0[k] = Math.sin(clamp(alpha0, -0.35, 0.35));
+          M.cm0[k] = clamp((Math.PI / 4) * (A2 - A1), -0.3, 0.3);
+          // camber pitching moment about the quarter chord (nose-up axis = N × t̂), fades out with stall
+          const a = Math.abs(nd) / V;
+          const st = smooth(o.stallDeg, o.stallDeg + 10, Math.asin(Math.min(1, a)) / DEG);
+          const Mc = 0.5 * RHO * V * V * C.area * medianChord * M.cm0[k] * (1 - st);
+          Tx += (nY * tz - nZ * ty) * Mc; Ty += (nZ * tx - nX * tz) * Mc; Tz += (nX * ty - nY * tx) * Mc;
+        }
+      }
+      for (let j = 0; j < faces.length; j++) M.sinA0e[faces[j]] = M.sinA0[k];
+      // Reattachment: a bluff face with a long body behind it sheds a wake that reattaches, and most
+      // of its pressure drag is recovered downstream. Only bluff regions get this.
+      if (C.kind === 1) {
+        const h = Math.max(2 * Math.min(L, spanHalf), 1e-6);
+        const after = Math.max(0, bodyMax - cmax);
+        M.reatt[k] = 1 - 0.7 * smooth(0.5, 4, after / h);
+      } else M.reatt[k] = 1;
+      // wake torque on separated flow (region level)
       if (o.wake && V > 1e-4) {
         const a = Math.abs(nd) / V;
         const st = smooth(o.stallDeg, o.stallDeg + 10, Math.asin(Math.min(1, a)) / DEG);
         if (st > 0) {
-          const m22 = RHO * Math.PI * L * L * (2 * spanHalf) * (AR / (AR + 1)) * M.factor * M.reatt[k];
-          // cross(tIn, nd·n) with tIn = t̂·tl(original)
+          const ARw = clamp(spanHalf / L, 0.25, 12);
+          const m22 = RHO * Math.PI * L * L * (2 * spanHalf) * (ARw / (ARw + 1)) * (C.kind === 1 ? 0.5 : 1) * M.reatt[k];
           const ix = tx * tlFlow, iy = ty * tlFlow, iz = tz * tlFlow;
           const bx = nX * nd, by = nY * nd, bz = nZ * nd;
           const g = m22 * st * o.wake;
@@ -1091,8 +1251,7 @@
         }
       }
     }
-    // pass 2: per facet
-    const a0max = 12;
+    // pass 2: per element
     for (let f = 0; f < M.n; f++) {
       const rx = R[0] * M.cx[f] + R[1] * M.cy[f] + R[2] * M.cz[f], ry = R[3] * M.cx[f] + R[4] * M.cy[f] + R[5] * M.cz[f], rz = R[6] * M.cx[f] + R[7] * M.cy[f] + R[8] * M.cz[f];
       const nX = R[0] * M.nx[f] + R[1] * M.ny[f] + R[2] * M.nz[f], nY = R[3] * M.nx[f] + R[4] * M.ny[f] + R[5] * M.nz[f], nZ = R[6] * M.nx[f] + R[7] * M.ny[f] + R[8] * M.nz[f];
@@ -1101,38 +1260,55 @@
       const V = Math.sqrt(ax * ax + ay * ay + az * az);
       if (tufts) { tufts[f * 6] = rx; tufts[f * 6 + 1] = ry; tufts[f * 6 + 2] = rz; }
       if (V < 1e-4) { if (tufts) { tufts[f * 6 + 3] = rx; tufts[f * 6 + 4] = ry; tufts[f * 6 + 5] = rz; if (stallOut) stallOut[f] = 0; } continue; }
-      const nd = (ax * nX + ay * nY + az * nZ) / V;
-      const sinA = -nd, a = Math.abs(sinA), cosA = Math.sqrt(Math.max(0, 1 - a * a));
-      const alphaDeg = Math.asin(Math.min(1, a)) / DEG;
+      const bluff = kind[f] === 1;
       const k = M.cluster[f];
-      // chordwise interval [xi0, xi1] of this facet along the region's flow axis; the attached-flow
-      // weight 3(1-ξ)² is integrated exactly over it, so totals and moments do not depend on facet size
+      const nd = (ax * nX + ay * nY + az * nZ) / V;           // against the element's own normal
+      const sinL = -nd;
+      // A plate element is a piece of a lifting surface: its angle of attack and stall come from the
+      // region's mean normal (the chord plane), with the local slope entering only as a camber term.
+      // Otherwise the nose of a cambered airfoil would stall at the angle where its own skin slopes.
+      let sinA = sinL;
+      if (!bluff) {
+        const ndR = (ax * M.rnx[k] + ay * M.rny[k] + az * M.rnz[k]) / V;
+        sinA = -ndR + M.sinA0e[f];
+      }
+      const a = Math.abs(sinA), cosA = Math.sqrt(Math.max(0, 1 - a * a));
+      const alphaDeg = Math.asin(Math.min(1, a)) / DEG;
+      // chordwise station of the source facet on the region's flow axis
+      const ff = f0[f];
       const ktx = M.tx[k], kty = M.ty[k], ktz = M.tz[k];
-      const i0 = idx[f * 3] * 3, i1 = idx[f * 3 + 1] * 3, i2 = idx[f * 3 + 2] * 3;
+      const i0 = idx[ff * 3] * 3, i1 = idx[ff * 3 + 1] * 3, i2 = idx[ff * 3 + 2] * 3;
       const p0 = wv[i0] * ktx + wv[i0 + 1] * kty + wv[i0 + 2] * ktz, p1 = wv[i1] * ktx + wv[i1 + 1] * kty + wv[i1 + 2] * ktz, p2 = wv[i2] * ktx + wv[i2 + 1] * kty + wv[i2 + 2] * ktz;
-      const inv = 1 / (M.tmax[k] - M.tmin[k]);
+      const sMin = M.stmin[f], inv = 1 / (M.stmax[f] - sMin);
       // area-weighted mean of the quadratic 3(1-ξ)² over the triangle: exact via its edge midpoints
-      const e0 = 1 - clamp((0.5 * (p0 + p1) - M.tmin[k]) * inv, 0, 1), e1 = 1 - clamp((0.5 * (p1 + p2) - M.tmin[k]) * inv, 0, 1), e2 = 1 - clamp((0.5 * (p2 + p0) - M.tmin[k]) * inv, 0, 1);
+      const e0 = 1 - clamp((0.5 * (p0 + p1) - sMin) * inv, 0, 1), e1 = 1 - clamp((0.5 * (p1 + p2) - sMin) * inv, 0, 1), e2 = 1 - clamp((0.5 * (p2 + p0) - sMin) * inv, 0, 1);
       const w0 = e0 * e0, w1 = e1 * e1, w2 = e2 * e2, wAtt = w0 + w1 + w2;
-      // pressure-weighted point of action of the attached-flow force (edge midpoints weighted by w)
+      // pressure-weighted point of action of the attached-flow force (edge midpoints weighted by w), shifted to the mid-surface
       let ax_ = rx, ay_ = ry, az_ = rz;
       if (wAtt > 1e-12) {
         const iw = 0.5 / wAtt;
-        ax_ = iw * (w0 * (wv[i0] + wv[i1]) + w1 * (wv[i1] + wv[i2]) + w2 * (wv[i2] + wv[i0]));
-        ay_ = iw * (w0 * (wv[i0 + 1] + wv[i1 + 1]) + w1 * (wv[i1 + 1] + wv[i2 + 1]) + w2 * (wv[i2 + 1] + wv[i0 + 1]));
-        az_ = iw * (w0 * (wv[i0 + 2] + wv[i1 + 2]) + w1 * (wv[i1 + 2] + wv[i2 + 2]) + w2 * (wv[i2 + 2] + wv[i0 + 2]));
+        const gx = iw * (w0 * (wv[i0] + wv[i1]) + w1 * (wv[i1] + wv[i2]) + w2 * (wv[i2] + wv[i0]));
+        const gy = iw * (w0 * (wv[i0 + 1] + wv[i1 + 1]) + w1 * (wv[i1 + 1] + wv[i2 + 1]) + w2 * (wv[i2 + 1] + wv[i0 + 1]));
+        const gz = iw * (w0 * (wv[i0 + 2] + wv[i1 + 2]) + w1 * (wv[i1 + 2] + wv[i2 + 2]) + w2 * (wv[i2 + 2] + wv[i0 + 2]));
+        // facet centroid → element centre offset (mid-surface shift for paired elements)
+        const fx = (wv[i0] + wv[i1] + wv[i2]) / 3, fy = (wv[i0 + 1] + wv[i1 + 1] + wv[i2 + 1]) / 3, fz = (wv[i0 + 2] + wv[i1 + 2] + wv[i2 + 2]) / 3;
+        ax_ = gx + (rx - fx); ay_ = gy + (ry - fy); az_ = gz + (rz - fz);
       }
-      const AR = M.AR[k];
+      const AR = bluff ? M.AR[k] : M.ARe[f];
       const st = smooth(o.stallDeg, o.stallDeg + 10, alphaDeg);
       const weight = (1 - a) * wAtt + a;
-      const a0 = 2 * Math.PI * AR / (AR + 2);
-      const clAtt = a0 * sinA;
+      const a0 = bluff ? 0 : M.a0e[f];
+      const clAtt = bluff ? 0 : a0 * sinA;
       const cnStall = o.cd90 * sinA;
-      const qA = 0.5 * RHO * V * V * M.area[f] * weight * M.factor;
+      const qA = 0.5 * RHO * V * V * M.area[f] * (bluff ? 1 : weight);
       const ux = ax / V, uy = ay / V, uz = az / V;
       let fx, fy, fz;
-      const ls = o.suction;
-      if (ls > 0) {
+      const ls = bluff ? 0 : o.suction;
+      if (bluff) {
+        // one skin with nothing thin behind it: Newtonian pressure on the windward side, base suction on the lee side
+        const g = -cnStall * qA * 0.8 * (sinA < 0 ? 0.35 : 0.65) * M.reatt[k];
+        fx = nX * g; fy = nY * g; fz = nZ * g;
+      } else if (ls > 0) {
         let lx = nX - ux * nd, ly = nY - uy * nd, lz = nZ - uz * nd;
         const ll = Math.sqrt(lx * lx + ly * ly + lz * lz) || 1; lx /= ll; ly /= ll; lz /= ll;
         const g = -clAtt * qA * (1 - st);
@@ -1141,13 +1317,13 @@
         const g = -clAtt * cosA * qA * (1 - st);
         fx = nX * g; fy = nY * g; fz = nZ * g;
       }
-      const gs = -cnStall * qA * st * (M.closed && sinA < 0 ? 0.5 : 1) * M.reatt[k];   // lee skin of a solid: base suction, weaker
-      fx += nX * gs; fy += nY * gs; fz += nZ * gs;
+      if (!bluff) { const gs = -cnStall * qA * st; fx += nX * gs; fy += nY * gs; fz += nZ * gs; }   // plate: separated normal force
       const cdi = (1 - st) * clAtt * clAtt / (Math.PI * 0.85 * AR);
       const gt = (o.cf + cdi) * qA;
       fx += ux * gt; fy += uy * gt; fz += uz * gt;
       Fx += fx; Fy += fy; Fz += fz;
-      // point of action: attached part at the weighted point, separated part at the centroid
+      if (out && out.elemF) { out.elemF[f * 3] = fx; out.elemF[f * 3 + 1] = fy; out.elemF[f * 3 + 2] = fz; }
+      // point of action: attached part at the weighted point, separated part at the element centre
       const bl = weight > 1e-12 ? ((1 - a) * wAtt) / weight : 0;
       const px_ = rx + bl * (ax_ - rx), py_ = ry + bl * (ay_ - ry), pz_ = rz + bl * (az_ - rz);
       Tx += py_ * fz - pz_ * fy; Ty += pz_ * fx - px_ * fz; Tz += px_ * fy - py_ * fx;
@@ -1158,7 +1334,6 @@
         tufts[f * 6 + 3] = rx + ux * tl2; tufts[f * 6 + 4] = ry + uy * tl2; tufts[f * 6 + 5] = rz + uz * tl2;
         if (stallOut) stallOut[f] = st;
       }
-      if (a0 > a0max) { /* unreachable guard */ }
     }
     acc.F[0] += Fx; acc.F[1] += Fy; acc.F[2] += Fz; acc.T[0] += Tx; acc.T[1] += Ty; acc.T[2] += Tz;
     acc.lift += lift; acc.drag += drag;
@@ -1585,7 +1760,7 @@
     const o = Object.assign({ size: 20, mass: 20, res: 0, airfoil: 0, ballast: 0, zUp: false, name: 'Model', color: 0xB7C4D6, launch: { speed: 0, pitch: 15, roll: 10, spin: 0.5 }, viewDist: null, turbulence: 0 }, opts);
     let mesh = A.normalizeMesh(base, o.size * 0.01, o.zUp);
     let faces = mesh.indices.length / 3, res = 0;
-    while (res < o.res && faces * 4 <= 12000) { mesh = A.subdivide(mesh, 1); faces *= 4; res++; }
+    if (!o.noSubdivide) while (res < o.res && faces * 4 <= 12000) { mesh = A.subdivide(mesh, 1); faces *= 4; res++; }
     return {
       name: o.name, kind: 'mesh', mesh, meshOpts: { mass: o.mass * 0.001, suction: o.airfoil, cd90: 1.3, stallDeg: 13, cf: 0.015, wake: 0.3, ballast: o.ballast * 0.001 },
       launch: o.launch, viewDist: o.viewDist || Math.max(0.6, o.size * 0.01 * 2.8), turbulence: o.turbulence, visual: { color: o.color, mesh: true },
@@ -1594,6 +1769,246 @@
   }
 
   Object.assign(O, { MESH_CATALOG, meshSpec, boxMesh, icosphere, gliderMesh, dartMesh, parseSTL, parseOBJ, mergeMeshes: merge, transformMesh: transform });
+})(typeof self !== 'undefined' ? self : this);
+
+</script>
+<script>
+/*
+ * foam.js — a solid foam chuck-glider carved as ONE watertight mesh.
+ *
+ * The glider is described as a signed-distance field: a body-of-revolution fuselage,
+ * a wing lofted from a NACA 4-digit section (taper, sweep, dihedral, incidence), a
+ * tailplane and a fin, joined with a smooth union so the roots blend like moulded foam.
+ * The surface is then extracted on a rectilinear grid with the surface-nets algorithm,
+ * which produces a closed, connected mesh by construction. Grid spacing is the
+ * resolution control: finer grids follow the airfoil and the fillets more closely.
+ */
+(function (root) {
+  const isNode = typeof module === 'object' && module.exports;
+  const A = isNode ? require('./aero.js') : root.AERO;
+  const O = isNode ? require('./objects.js') : root.OBJECTS;
+  const DEG = Math.PI / 180;
+
+  // ---------------------------------------------------------------- airfoil section
+  /** NACA 4-digit outline (unit chord), as a closed polygon: TE → upper → LE → lower → TE. */
+  function nacaPolygon(m, p, t, n = 26) {
+    const pts = [];
+    const yt = (x) => 5 * t * (0.2969 * Math.sqrt(x) - 0.1260 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4);
+    const camber = (x) => {
+      if (m === 0) return [0, 0];
+      if (x < p) return [m / (p * p) * (2 * p * x - x * x), 2 * m / (p * p) * (p - x)];
+      return [m / ((1 - p) ** 2) * ((1 - 2 * p) + 2 * p * x - x * x), 2 * m / ((1 - p) ** 2) * (p - x)];
+    };
+    const station = (i) => 0.5 * (1 - Math.cos(Math.PI * i / n));   // cosine spacing, dense at the nose
+    for (let i = n; i >= 0; i--) { const x = station(i), [yc, dy] = camber(x), th = Math.atan(dy), h = yt(x); pts.push([x - h * Math.sin(th), yc + h * Math.cos(th)]); }
+    for (let i = 1; i <= n; i++) { const x = station(i), [yc, dy] = camber(x), th = Math.atan(dy), h = yt(x); pts.push([x + h * Math.sin(th), yc - h * Math.cos(th)]); }
+    return pts;
+  }
+  /** Signed distance from (x, y) to a closed polygon: negative inside. */
+  function sdPolygon(poly, x, y) {
+    let d = Infinity, inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [ax, ay] = poly[i], [bx, by] = poly[j];
+      const ex = bx - ax, ey = by - ay, wx = x - ax, wy = y - ay;
+      const tt = Math.max(0, Math.min(1, (wx * ex + wy * ey) / (ex * ex + ey * ey || 1e-12)));
+      const dx = wx - ex * tt, dy = wy - ey * tt;
+      const dd = dx * dx + dy * dy; if (dd < d) d = dd;
+      if ((ay > y) !== (by > y) && x < ax + (y - ay) * ex / ey) inside = !inside;
+    }
+    return (inside ? -1 : 1) * Math.sqrt(d);
+  }
+
+  // ---------------------------------------------------------------- components
+  /**
+   * Lifting surface lofted along the span (mirrored about z = 0).
+   *   span, rootChord, tipChord, sweepDeg (of the quarter-chord line), dihedralDeg, incidenceDeg,
+   *   x (quarter chord at the root), y (root height), section [m, p, t], vertical (fin: spans +y from y)
+   */
+  function surfaceSDF(o) {
+    const poly = nacaPolygon(o.section[0], o.section[1], o.section[2]);
+    const half = o.vertical ? o.span : o.span / 2;
+    const tanS = Math.tan((o.sweepDeg || 0) * DEG);
+    const cd = Math.cos((o.dihedralDeg || 0) * DEG), sd = Math.sin((o.dihedralDeg || 0) * DEG);
+    const ci = Math.cos((o.incidenceDeg || 0) * DEG), si = Math.sin((o.incidenceDeg || 0) * DEG);
+    const maxC = Math.max(o.rootChord, o.tipChord);
+    // bounding box for early-out
+    const bb = o.vertical
+      ? { x0: o.x - maxC - half * Math.abs(tanS), x1: o.x + maxC, y0: o.y - maxC * 0.2, y1: o.y + half + maxC * 0.2, z0: -maxC * 0.3, z1: maxC * 0.3 }
+      : { x0: o.x - maxC - half * Math.abs(tanS), x1: o.x + maxC, y0: o.y - maxC * 0.3 - half * Math.abs(sd), y1: o.y + maxC * 0.3 + half * Math.abs(sd), z0: -half, z1: half };
+    return {
+      bb,
+      f(x, y, z) {
+        let s, h;                       // s: spanwise station, h: normal-to-plane offset
+        if (o.vertical) { s = y - o.y; h = z; }
+        else { const za = Math.abs(z), yr = y - o.y; s = za * cd + yr * sd; h = yr * cd - za * sd; }
+        const f = Math.max(0, Math.min(1, s / half));
+        const c = o.rootChord + (o.tipChord - o.rootChord) * f;
+        const xqc = o.x - s * tanS;
+        // section frame: chordwise from the leading edge, incidence rotation about the quarter chord
+        let dx = x - xqc, dh = h;
+        const xr = dx * ci + dh * si, hr = -dx * si + dh * ci;
+        const xi = 0.25 - xr / c, eta = hr / c;
+        const d2 = sdPolygon(poly, xi, eta) * c;
+        // spanwise caps: root at s = 0 is left open (it continues into the other half / the body)
+        const dsOut = s - half;
+        const dIn = o.vertical ? -s : -1;      // fin has a root plane at its base (inside the fuselage anyway)
+        const cap = Math.max(dsOut, dIn);
+        return cap > 0 ? Math.sqrt(Math.max(d2, 0) ** 2 + cap * cap) : Math.max(d2, cap);
+      },
+    };
+  }
+  /** Fuselage: body of revolution about the x axis, nose at x1, tail at x0. */
+  function fuselageSDF(o) {
+    const { x0, x1, radius, y = 0 } = o;
+    const L = x1 - x0, xc = (x0 + x1) / 2;
+    const r = (x) => {
+      const u = (x - xc) / (L / 2);                         // -1 tail … +1 nose
+      if (Math.abs(u) >= 1) return 0;
+      const nose = Math.sqrt(1 - Math.pow(Math.max(0, u), 3));           // blunt rounded nose
+      const tail = Math.pow(1 - Math.pow(Math.max(0, -u), 1.6), 0.75);   // long taper to the tail
+      return radius * Math.min(nose, tail) * (0.55 + 0.45 * (u + 1) / 2);
+    };
+    return {
+      bb: { x0: x0 - 0.01, x1: x1 + 0.01, y0: y - radius - 0.01, y1: y + radius + 0.01, z0: -radius - 0.01, z1: radius + 0.01 },
+      f(x, yy, z) {
+        const rho = Math.hypot(yy - y, z);
+        if (x <= x0 || x >= x1) return Math.hypot(rho, Math.max(x0 - x, x - x1));
+        return rho - r(x);
+      },
+    };
+  }
+  const smin = (a, b, k) => { const h = Math.max(0, Math.min(1, 0.5 + 0.5 * (b - a) / k)); return (b + (a - b) * h) - k * h * (1 - h); };
+
+  // ---------------------------------------------------------------- the foam glider
+  const FOAM_DEFAULT = {
+    span: 0.60, rootChord: 0.11, tipChord: 0.07, sweep: 4, dihedral: 5, incidence: 2, wingX: 0.06, wingY: 0.008,
+    section: [0.04, 0.4, 0.12],                  // NACA 4412-ish: cambered, 12% thick — foam needs the thickness
+    fuseX0: -0.27, fuseX1: 0.30, fuseR: 0.021,
+    tailSpan: 0.24, tailChord: 0.07, tailX: -0.21, tailInc: 0, tailSection: [0, 0, 0.12],
+    finHeight: 0.085, finRootChord: 0.075, finTipChord: 0.045, finX: -0.215, finSection: [0, 0, 0.11],
+    fillet: 0.012,
+  };
+  function foamSDF(p) {
+    const parts = [
+      fuselageSDF({ x0: p.fuseX0, x1: p.fuseX1, radius: p.fuseR }),
+      surfaceSDF({ span: p.span, rootChord: p.rootChord, tipChord: p.tipChord, sweepDeg: p.sweep, dihedralDeg: p.dihedral, incidenceDeg: p.incidence, x: p.wingX, y: p.wingY, section: p.section }),
+      surfaceSDF({ span: p.tailSpan, rootChord: p.tailChord, tipChord: p.tailChord * 0.8, sweepDeg: 6, dihedralDeg: 0, incidenceDeg: p.tailInc, x: p.tailX, y: 0.004, section: p.tailSection }),
+      surfaceSDF({ vertical: true, span: p.finHeight, rootChord: p.finRootChord, tipChord: p.finTipChord, sweepDeg: 25, x: p.finX, y: 0.0, section: p.finSection }),
+    ];
+    const k = p.fillet;
+    const bb = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity, z0: Infinity, z1: -Infinity };
+    for (const c of parts) { bb.x0 = Math.min(bb.x0, c.bb.x0); bb.x1 = Math.max(bb.x1, c.bb.x1); bb.y0 = Math.min(bb.y0, c.bb.y0); bb.y1 = Math.max(bb.y1, c.bb.y1); bb.z0 = Math.min(bb.z0, c.bb.z0); bb.z1 = Math.max(bb.z1, c.bb.z1); }
+    return {
+      bb,
+      f(x, y, z) {
+        let d = Infinity;
+        for (const c of parts) {
+          const b = c.bb;
+          // cheap bound: distance to the component's box; skip if it cannot matter
+          const ex = Math.max(b.x0 - x, 0, x - b.x1), ey = Math.max(b.y0 - y, 0, y - b.y1), ez = Math.max(b.z0 - z, 0, z - b.z1);
+          const far = Math.sqrt(ex * ex + ey * ey + ez * ez);
+          if (far > d + k) continue;
+          const v = far > k ? far : c.f(x, y, z);
+          d = d === Infinity ? v : smin(d, v, k);
+        }
+        return d;
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------- surface nets on a rectilinear grid
+  /**
+   * Extract the zero level set of f on a grid with axis coordinate arrays xs, ys, zs.
+   * One vertex per sign-changing cell (mean of its edge crossings); one quad per
+   * sign-changing grid edge, oriented outward. Closed and connected by construction.
+   */
+  function surfaceNets(f, xs, ys, zs) {
+    const nx = xs.length, ny = ys.length, nz = zs.length;
+    const val = new Float32Array(nx * ny * nz);
+    const id = (i, j, k) => (i * ny + j) * nz + k;
+    for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) for (let k = 0; k < nz; k++) val[id(i, j, k)] = f(xs[i], ys[j], zs[k]);
+    const cnx = nx - 1, cny = ny - 1, cnz = nz - 1;
+    const cellV = new Int32Array(cnx * cny * cnz).fill(-1);
+    const cid = (i, j, k) => (i * cny + j) * cnz + k;
+    const pos = [];
+    // cube edges: pairs of corner indices; corner bits (x, y, z)
+    const corners = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]];
+    const edges = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+    const cv = new Float32Array(8);
+    for (let i = 0; i < cnx; i++) for (let j = 0; j < cny; j++) for (let k = 0; k < cnz; k++) {
+      let mask = 0;
+      for (let c = 0; c < 8; c++) { const v = val[id(i + corners[c][0], j + corners[c][1], k + corners[c][2])]; cv[c] = v; if (v < 0) mask |= 1 << c; }
+      if (mask === 0 || mask === 255) continue;
+      let sx = 0, sy = 0, sz = 0, n = 0;
+      for (const [a, b] of edges) {
+        if ((cv[a] < 0) === (cv[b] < 0)) continue;
+        const t = cv[a] / (cv[a] - cv[b]);
+        const ca = corners[a], cb = corners[b];
+        sx += xs[i + ca[0]] + (xs[i + cb[0]] - xs[i + ca[0]]) * t;
+        sy += ys[j + ca[1]] + (ys[j + cb[1]] - ys[j + ca[1]]) * t;
+        sz += zs[k + ca[2]] + (zs[k + cb[2]] - zs[k + ca[2]]) * t;
+        n++;
+      }
+      cellV[cid(i, j, k)] = pos.length / 3;
+      pos.push(sx / n, sy / n, sz / n);
+    }
+    const idx = [];
+    const quad = (a, b, c, d, flip) => {
+      if (a < 0 || b < 0 || c < 0 || d < 0) return;
+      if (flip) idx.push(a, c, b, a, d, c); else idx.push(a, b, c, a, c, d);
+    };
+    // edges along x at grid point (i,j,k) → (i+1,j,k): cells (i, j-1|j, k-1|k)
+    for (let i = 0; i < cnx; i++) for (let j = 1; j < cny; j++) for (let k = 1; k < cnz; k++) {
+      const a = val[id(i, j, k)], b = val[id(i + 1, j, k)];
+      if ((a < 0) === (b < 0)) continue;
+      quad(cellV[cid(i, j - 1, k - 1)], cellV[cid(i, j, k - 1)], cellV[cid(i, j, k)], cellV[cid(i, j - 1, k)], !(a < 0));
+    }
+    // edges along y: cells (i-1|i, j, k-1|k); loop +z then +x
+    for (let i = 1; i < cnx; i++) for (let j = 0; j < cny; j++) for (let k = 1; k < cnz; k++) {
+      const a = val[id(i, j, k)], b = val[id(i, j + 1, k)];
+      if ((a < 0) === (b < 0)) continue;
+      quad(cellV[cid(i - 1, j, k - 1)], cellV[cid(i - 1, j, k)], cellV[cid(i, j, k)], cellV[cid(i, j, k - 1)], !(a < 0));
+    }
+    // edges along z: cells (i-1|i, j-1|j, k); loop +x then +y
+    for (let i = 1; i < cnx; i++) for (let j = 1; j < cny; j++) for (let k = 0; k < cnz; k++) {
+      const a = val[id(i, j, k)], b = val[id(i, j, k + 1)];
+      if ((a < 0) === (b < 0)) continue;
+      quad(cellV[cid(i - 1, j - 1, k)], cellV[cid(i, j - 1, k)], cellV[cid(i, j, k)], cellV[cid(i - 1, j, k)], !(a < 0));
+    }
+    return { positions: Float64Array.from(pos), indices: Uint32Array.from(idx) };
+  }
+
+  /** Axis coordinates: spacing h, refined to hFine inside [a, b]. */
+  function axis(lo, hi, h, fine) {
+    const out = [lo]; let x = lo;
+    while (x < hi) { const step = fine && x + h > fine.a && x < fine.b ? fine.h : h; x = Math.min(hi, x + step); out.push(x); }
+    return out;
+  }
+
+  /** Build the foam glider mesh at a resolution level (0 coarse … 2 fine). */
+  function foamGliderMesh(level = 0, params) {
+    const p = Object.assign({}, FOAM_DEFAULT, params || {});
+    const sdf = foamSDF(p);
+    const hx = [0.010, 0.0075, 0.005][level], hy = [0.0045, 0.0035, 0.0025][level], hz = [0.010, 0.0075, 0.005][level];
+    const fineZ = { a: -(p.fuseR + 0.02), b: p.fuseR + 0.02, h: hy };      // fine across the fuselage and fin
+    const m = 0.015;
+    const xs = axis(sdf.bb.x0 - m, sdf.bb.x1 + m, hx);
+    const ys = axis(sdf.bb.y0 - m, sdf.bb.y1 + m, hy);
+    const zs = axis(sdf.bb.z0 - m, sdf.bb.z1 + m, hz, fineZ);
+    const mesh = surfaceNets(sdf.f, xs, ys, zs);
+    mesh.grid = { nx: xs.length, ny: ys.length, nz: zs.length };
+    return mesh;
+  }
+
+  // register as a mesh sample: base(res) builds at that grid level, no subdivision afterwards
+  O.MESH_CATALOG.foam = {
+    label: 'Foam glider (solid)', blurb: 'A moulded foam chuck glider as one watertight solid: NACA 4412 wing, thick tail and fin, blended into a round body. Resolution sets the carving grid.',
+    size: 60, mass: 30, res: 0, airfoil: 0.85, ballast: 0, gridRes: true,
+    base: (res) => foamGliderMesh(res || 0),
+    launch: { speed: 5, pitch: 2, roll: 0, spin: 0 }, viewDist: 1.7, color: 0xF2F0EA, glider: true,
+  };
+
+  Object.assign(O, { foamGliderMesh, foamSDF, surfaceNets, nacaPolygon, FOAM_DEFAULT });
 })(typeof self !== 'undefined' ? self : this);
 
 </script>
@@ -1710,7 +2125,7 @@
     if (O.CATALOG[state.selected]) return O.CATALOG[state.selected].make();
     if (isMesh()) {
       const m = state.model;
-      return O.meshSpec(state.modelBase, { size: m.size, mass: m.mass, ballast: m.ballast, airfoil: m.airfoil, res: m.res, zUp: m.zUp,
+      return O.meshSpec(state.modelBase, { size: m.size, mass: m.mass, ballast: m.ballast, airfoil: m.airfoil, res: m.res, zUp: m.zUp, noSubdivide: m.gridRes,
         name: m.name, color: m.color, launch: m.launch || { speed: 0, pitch: state.angle, roll: 0, spin: 0.3 }, turbulence: m.turbulence });
     }
     const preset = O.GLIDER_PRESETS[state.selected];
@@ -1986,9 +2401,9 @@
     if (O.GLIDER_PRESETS[key]) { state.design = Object.assign({}, O.GLIDER_PRESETS[key]); syncDesignSliders(); }
     if (O.MESH_CATALOG[key]) {
       const e = O.MESH_CATALOG[key];
-      state.modelBase = e.base();
-      Object.assign(state.model, { size: e.size, mass: e.mass, ballast: e.ballast || 0, airfoil: e.airfoil, res: e.res, zUp: false, name: e.label, color: e.color, launch: e.launch, turbulence: e.turbulence || 0 });
-    }
+      Object.assign(state.model, { size: e.size, mass: e.mass, ballast: e.ballast || 0, airfoil: e.airfoil, res: e.res, zUp: false, name: e.label, color: e.color, launch: e.launch, turbulence: e.turbulence || 0, gridRes: !!e.gridRes });
+      state.modelBase = e.gridRes ? e.base(state.model.res) : e.base();
+    } else state.model.gridRes = false;
     if (key === 'upload') state.modelBase = state.uploadBase || state.modelBase;
     if (isMesh()) { state.uploadBase = key === 'upload' ? state.modelBase : state.uploadBase; syncModelSliders(); }
     $('#designPanel').style.display = isGlider() ? '' : 'none';
@@ -2090,12 +2505,18 @@
         const v = parseFloat(inp.value);
         state.model[P.key] = P.log ? +Math.pow(10, v).toPrecision(3) : v;
         w.querySelector('output').textContent = fmtModel(P, state.model[P.key]);
-        clearTimeout(modelTimer); modelTimer = setTimeout(restage, P.key === 'res' ? 0 : 120);
+        clearTimeout(modelTimer);
+        modelTimer = setTimeout(() => {
+          if (P.key === 'res' && state.model.gridRes && O.MESH_CATALOG[state.selected]) {   // carved models: re-carve on a finer grid
+            toast('Carving foam…');
+            setTimeout(() => { state.modelBase = O.MESH_CATALOG[state.selected].base(Math.min(2, state.model.res)); restage(); }, 30);
+          } else restage();
+        }, P.key === 'res' ? 0 : 120);
       });
     }
     const stats = document.createElement('p'); stats.className = 'foot'; stats.id = 'modelInfo'; modelEl.appendChild(stats);
   }
-  const fmtModel = (P, v) => P.key === 'res' ? `${v} (${v === 0 ? 'as built' : '×' + Math.pow(4, v) + ' faces'})` : `${(+v).toFixed(v < 10 ? 1 : 0)} ${P.unit}`.trim();
+  const fmtModel = (P, v) => P.key === 'res' ? (state.model.gridRes ? ['coarse grid', 'medium grid', 'fine grid', 'fine grid'][v] : `${v} (${v === 0 ? 'as built' : '×' + Math.pow(4, v) + ' faces'})`) : `${(+v).toFixed(v < 10 ? 1 : 0)} ${P.unit}`.trim();
   function syncModelSliders() {
     for (const P of MODEL) {
       const inp = document.getElementById('m_' + P.key); if (!inp) continue;
@@ -2113,7 +2534,7 @@
     el.textContent = `${M.n} faces · ${M.closed ? 'solid' : 'shell'} · ` + (tr.alpha == null ? (tr.dive ? 'dives' : 'no glide') : `glides ${tr.glide.toFixed(1)} : 1 at ${tr.V.toFixed(1)} m/s`);
     el.className = 'stat ' + (tr.alpha == null ? '' : 'good');
     const info = $('#modelInfo');
-    if (info) info.textContent = `${M.n} triangles in ${M.clusters.length} flat regions · ${M.closed ? 'closed solid' : 'open surface, both sides in the air'} · volume ${(pr.volume * 1e6).toFixed(pr.volume * 1e6 < 10 ? 2 : 0)} cm³ · surface ${(pr.area * 1e4).toFixed(0)} cm² · ${(b.mass * 1000).toFixed(1)} g` +
+    if (info) info.textContent = `${M.nFacets} triangles · ${M.closed ? `${M.paired} paired into mid-surface elements, ${M.clusters.length} regions` : `${M.clusters.length} regions, both sides in the air`} · ${M.closed ? 'closed solid' : 'open surface'} · volume ${(pr.volume * 1e6).toFixed(pr.volume * 1e6 < 10 ? 2 : 0)} cm³ · surface ${(pr.area * 1e4).toFixed(0)} cm² · ${(b.mass * 1000).toFixed(1)} g` +
       (tr.alpha == null ? ' · no stable lifting trim: it will not glide as is (try nose ballast, or none).' : ` · trims at ${tr.alpha.toFixed(1)}° angle of attack, ${tr.V.toFixed(1)} m/s, lift/drag ${tr.glide.toFixed(1)}.`);
     syncAir();
   }
