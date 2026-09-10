@@ -4,6 +4,7 @@
 export function createCutaway(roomView, camera) {
   const state = new Map(); // wallId -> faded boolean
   let firstPass = true;
+  let pinned = null; // wall the user selected (or that holds the selected object): keep it visible
 
   function shouldFade(frame) {
     // Camera on the outer side of the wall plane => the wall is between the camera and the interior.
@@ -17,7 +18,7 @@ export function createCutaway(roomView, camera) {
   function update() {
     let changed = false;
     for (const [wallId, wall] of Object.entries(roomView.walls)) {
-      const faded = shouldFade(wall.frame);
+      const faded = wallId !== pinned && shouldFade(wall.frame);
       if (state.get(wallId) !== faded) {
         state.set(wallId, faded);
         roomView.setWallFade(wallId, faded, firstPass);
@@ -37,5 +38,12 @@ export function createCutaway(roomView, camera) {
 
   function isFaded(wallId) { return state.get(wallId) === true; }
 
-  return { update, reset, isFaded };
+  /** Keep one wall solid regardless of the camera (the selected wall / the wall of the selected object). */
+  function setPinned(wallId) {
+    if (pinned === (wallId || null)) return false;
+    pinned = wallId || null;
+    return update();
+  }
+
+  return { update, reset, isFaded, setPinned, getPinned: () => pinned };
 }

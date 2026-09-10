@@ -740,6 +740,54 @@ async function main() {
     await S(() => { window.__studio.rig.reducedMotion = false; });
   });
 
+  await step('Regressions: selecting a far wall keeps it visible; edits cancel the review; max room fits the camera', async () => {
+    await page.keyboard.press('r');
+    await settle();
+    // right wall (w1): from Home the camera sits on its outer side, so selecting it must re-aim and never fade it
+    await S(() => window.__studio.select({ kind: 'wall', id: 'w1' }));
+    await page.waitForTimeout(200);
+    await settle();
+    const w1 = await S(() => ({ faded: window.__studio.studio.cutaway.isFaded('w1'), pickable: window.__studio.studio.roomView.walls.w1.faceMesh.userData.pickable }));
+    assert(!w1.faded && w1.pickable === true, `selected wall stays solid ${JSON.stringify(w1)}`);
+    const exitDoor = (await state()).entities.find((e) => e.type === 'door' && e.meta.role === 'exit');
+    await S((id) => window.__studio.select({ kind: 'entity', id }), exitDoor.id);
+    await page.waitForTimeout(200);
+    await settle();
+    assert(!(await S(() => window.__studio.studio.cutaway.isFaded('w1'))), 'wall of the selected door stays solid');
+    await S(() => window.__studio.select({ kind: 'none' }));
+    await page.keyboard.press('r');
+    await settle();
+    // editing by non-canvas means cancels a running review
+    await S(() => { window.__studio.rig.reducedMotion = false; window.__studio.studio.startReview(); });
+    await page.waitForTimeout(300);
+    assert(await S(() => window.__studio.studio.isReviewing()), 'review running');
+    await page.locator('#wall-height-inc').click();
+    await page.waitForTimeout(200);
+    assert(!(await S(() => window.__studio.studio.isReviewing())), 'wall-height edit cancelled the review');
+    await page.keyboard.press('Control+z');
+    await S(() => window.__studio.studio.startReview());
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(200);
+    assert(!(await S(() => window.__studio.studio.isReviewing())), 'undo cancelled the review');
+    await page.keyboard.press('Control+y');
+    // the largest room the floor plan allows is framed by Home View
+    const maxW = Number(await page.locator('#fp-width').getAttribute('max'));
+    const before = await state();
+    await S(([w]) => window.__studio.studio.setRoomPlan({ polygon: [{ x: -w / 2, z: -w / 2 }, { x: w / 2, z: -w / 2 }, { x: w / 2, z: w / 2 }, { x: -w / 2, z: w / 2 }] }), [maxW]);
+    await page.keyboard.press('r');
+    await page.waitForTimeout(200);
+    await settle();
+    const corners = await S(([w]) => [[-w / 2, -w / 2], [w / 2, -w / 2], [w / 2, w / 2], [-w / 2, w / 2]].map(([x, z]) => window.__studio.project(x, 0, z)), [maxW]);
+    const inView = corners.every((c) => c.inFront && c.x >= 0 && c.x <= 1180 && c.y >= 0 && c.y <= 820);
+    assert(inView, `all corners of a ${maxW} ft room visible from Home: ${JSON.stringify(corners.map((c) => [Math.round(c.x), Math.round(c.y)]))}`);
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(200);
+    assert((await state()).room.polygon.length === before.room.polygon.length, 'room restored');
+    await page.keyboard.press('r');
+    await settle();
+  });
+
   // ---------------------------------------------------------------- floor plan (L-shape)
   await step('Floor plan editor: L-shaped room rebuilds walls and keeps wall fixtures', async () => {
     const before = await state();

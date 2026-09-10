@@ -47,6 +47,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
   });
   let selection = { kind: 'none', id: null };
   let hover = { kind: 'none', id: null };
+  let reviewActive = false;
   let mode = 'build'; // 'build' | 'finish'
   let collisionReport = { colliding: new Set(), outOfBounds: new Set(), pairs: [], count: 0 };
   let gameInfo = null;
@@ -57,7 +58,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
   // ------------------------------------------------------------------ scene
   const sceneCtx = createScene(canvas);
   const { scene, camera } = sceneCtx;
-  const rig = createCameraRig(camera, { minDistance: 6, maxDistance: 240 });
+  const rig = createCameraRig(camera, { minDistance: 6, maxDistance: 400 });
   rig.reducedMotion = reducedMotion;
   const roomView = createRoomView(sceneCtx);
   const gizmos = createGizmos(scene);
@@ -114,7 +115,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     const span = Math.max(b.width, b.depth * 1.25);
     return {
       target: new THREE.Vector3(c.x, 1.5, c.z),
-      distance: Math.min(230, span * 1.12 + 12),
+      distance: Math.min(380, span * 1.12 + 12),
       theta: 0.38,
       phi: 0.98,
     };
@@ -185,6 +186,8 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
   }
 
   function afterChange(label) {
+    // Editing the scene by any means interrupts a running cinematic review.
+    if (reviewActive && label !== 'Review') cancelReview();
     reconcile();
     updateCollisions();
     updateGame();
@@ -307,21 +310,39 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     clearSelectionVisuals(selection);
     selection = next;
     refreshSelectionVisuals();
+    cutaway.setPinned(pinnedWallFor(selection));
     if (focus) focusSelection();
     emit('selection', selection);
     requestRender();
+  }
+
+  /** Azimuth that looks at a wall from inside the room (eye on the inward-normal side of the wall). */
+  function thetaFacingWall(frame) {
+    return Math.atan2(frame.normal.x, frame.normal.z);
   }
 
   function focusSelection() {
     const sel = selection;
     if (sel.kind === 'entity') {
       const e = getEntity(sel.id);
-      if (e) rig.focus(entityCenterWorld(e), undefined, true);
+      if (!e) return;
+      const wallFrame = e.anchor === 'wall' ? getWall(e.parent) : null;
+      rig.focus(entityCenterWorld(e), undefined, true, wallFrame ? thetaFacingWall(wallFrame) : undefined);
     } else if (sel.kind === 'wall') {
       const f = getWall(sel.id);
-      if (f) rig.focus(new THREE.Vector3(f.midpoint.x, Math.min(ws.room.wallHeight / 2, 6), f.midpoint.z), undefined, true);
+      if (f) rig.focus(new THREE.Vector3(f.midpoint.x, Math.min(ws.room.wallHeight / 2, 6), f.midpoint.z), undefined, true, thetaFacingWall(f));
     }
     requestRender();
+  }
+
+  /** The wall that must stay visible for the current selection (selected wall, or the wall of a selected wall object). */
+  function pinnedWallFor(sel) {
+    if (sel.kind === 'wall') return sel.id;
+    if (sel.kind === 'entity') {
+      const e = getEntity(sel.id);
+      if (e && e.anchor === 'wall') return e.parent;
+    }
+    return null;
   }
 
   function selectionParent() {
@@ -697,6 +718,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     clearSelectionVisuals(selection);
     selection = { kind: 'none', id: null };
     hover = { kind: 'none', id: null };
+    cutaway.setPinned(null);
     roomSig = '';
     afterChange('new-space');
     rig.home(false);
@@ -739,7 +761,6 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
   function home(animate = true) { rig.home(animate); requestRender(); }
   function focusPoint(point) { rig.focus(point, undefined, true); requestRender(); }
 
-  let reviewActive = false;
   function startReview() {
     const b = roomBounds();
     const c = roomCenter();

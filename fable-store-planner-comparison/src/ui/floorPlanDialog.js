@@ -49,8 +49,8 @@ export function createFloorPlanDialog(studio, { toasts }) {
 
   function currentPolygon() {
     const shape = f.shape.value;
-    const w = Math.min(400, Math.max(8, num(f.width, 40)));
-    const d = Math.min(400, Math.max(8, num(f.depth, 28)));
+    const w = Math.min(250, Math.max(8, num(f.width, 40)));
+    const d = Math.min(250, Math.max(8, num(f.depth, 28)));
     if (shape === 'l-shape') {
       const nw = Math.min(w - 4, Math.max(2, num(f.notchWidth, 12)));
       const nd = Math.min(d - 4, Math.max(2, num(f.notchDepth, 8)));

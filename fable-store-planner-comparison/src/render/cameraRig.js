@@ -80,10 +80,11 @@ export function createCameraRig(camera, {
     tweenTo(homeState, animate);
   }
 
-  function focus(point, distance, animate = true) {
+  function focus(point, distance, animate = true, theta = undefined) {
     const to = cloneState(goal);
     to.target.copy(readVector(point, 'point'));
     if (distance !== undefined && distance !== null) to.distance = num(distance, 'distance');
+    if (theta !== undefined && theta !== null) to.theta = num(theta, 'theta');
     tweenTo(to, animate);
   }
 
