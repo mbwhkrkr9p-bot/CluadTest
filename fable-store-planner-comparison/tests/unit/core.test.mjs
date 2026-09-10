@@ -580,6 +580,35 @@ test('clampWallEntity clamps to the wall and pushes fixtures out of openings', (
   assert.throws(() => clampWallEntity(dock, { ...parked, parent: 'w7' }, { u: 1, v: 1 }), /w7/);
 });
 
+// A fresh template must have the exact shape a loaded workspace has, so a save/load round trip
+// is byte-identical from the very first frame (doors used to be built outside the canonical path).
+test('templates serialize identically to their save/load round trip', () => {
+  for (const [label, ws] of [['store', defaultStore()], ['warehouse', defaultWarehouse()], ['createWorkspace', createWorkspace('store')]]) {
+    const once = serialize(ws);
+    assert.equal(once, serialize(deserialize(once)), `${label} round trip is byte-identical`);
+    for (const entity of JSON.parse(once).entities) {
+      assert.deepEqual(
+        Object.keys(entity),
+        ['id', 'type', 'anchor', 'width', 'height', 'depth', 'meta', 'parent', 'position', 'rotation'],
+        `${label}: ${entity.type} uses the canonical entity shape`,
+      );
+    }
+  }
+  // the doors themselves are unchanged by the canonical path
+  const store = defaultStore();
+  const entrance = store.entities.find((e) => e.meta.role === 'entrance');
+  const exit = store.entities.find((e) => e.meta.role === 'exit');
+  assert.deepEqual(
+    [entrance.parent, entrance.position.u, entrance.width, entrance.height, entrance.meta.style],
+    ['w2', 20, 6, 7, 'full-glass'],
+  );
+  assert.deepEqual(
+    [exit.parent, exit.position.u, exit.width, exit.height, exit.meta.style],
+    ['w1', 6, 4, 7, 'black-steel'],
+  );
+  assert.equal(new Set(store.entities.map((e) => e.id)).size, store.entities.length, 'ids are unique');
+});
+
 // ---------------------------------------------------------------- history
 
 test('history undo/redo semantics, redo clearing and the limit', () => {

@@ -2,7 +2,7 @@
 // editor builds on. Pure data, no DOM, no three.js.
 import { normalizePolygon } from './geometry.js';
 import { getDef, defaultEntityFor } from './catalog.js';
-import { newId, SCHEMA_VERSION } from './state.js';
+import { newId, addEntity, SCHEMA_VERSION } from './state.js';
 
 const DOOR_DEPTH = 0.3;
 const WALL_THICKNESS = 0.5;
@@ -60,11 +60,9 @@ export function defaultStore() {
     floor: { preset: 'light-oak', color: '#b08a5a' },
     wall: { preset: 'warm-white', color: '#f1ece3' },
   });
-  ws.entities.push(
-    door({ wallId: 'w2', u: 20, width: 6, height: 7, style: 'full-glass', role: 'entrance' }),
-    door({ wallId: 'w1', u: 6, width: 4, height: 7, style: 'black-steel', role: 'exit' }),
-  );
-  return ws;
+  addEntity(ws, door({ wallId: 'w2', u: 20, width: 6, height: 7, style: 'full-glass', role: 'entrance' }));
+  addEntity(ws, door({ wallId: 'w1', u: 6, width: 4, height: 7, style: 'black-steel', role: 'exit' }));
+  return seal(ws);
 }
 
 /** 80 × 50 ft warehouse, 24 ft walls, steel doors on the front and right walls. */
@@ -77,11 +75,9 @@ export function defaultWarehouse() {
     floor: { preset: 'polished-concrete', color: '#b08a5a' },
     wall: { preset: 'warm-white', color: '#f1ece3' },
   });
-  ws.entities.push(
-    door({ wallId: 'w2', u: 40, width: 4, height: 7, style: 'black-steel', role: 'entrance' }),
-    door({ wallId: 'w1', u: 10, width: 6, height: 8, style: 'black-steel', role: 'exit' }),
-  );
-  return ws;
+  addEntity(ws, door({ wallId: 'w2', u: 40, width: 4, height: 7, style: 'black-steel', role: 'entrance' }));
+  addEntity(ws, door({ wallId: 'w1', u: 10, width: 6, height: 8, style: 'black-steel', role: 'exit' }));
+  return seal(ws);
 }
 
 // ---------------------------------------------------------------- private helpers
@@ -111,6 +107,12 @@ function baseWorkspace({ type, name, polygon, wallHeight, floor, wall }) {
   };
 }
 
+/** A brand-new space has not been edited yet: adding the doors must not age it. */
+function seal(ws) {
+  ws.meta.updatedAt = ws.meta.createdAt;
+  return ws;
+}
+
 function door({ wallId, u, width, height, style, role }) {
   const entity = defaultEntityFor(getDef('door'), {
     parent: wallId,
@@ -120,8 +122,7 @@ function door({ wallId, u, width, height, style, role }) {
     depth: DOOR_DEPTH,
     meta: { style, role },
   });
-  entity.id = newId('e');
-  return entity;
+  return entity; // addEntity assigns the id and normalises the shape
 }
 
 function assertPositive(value, label) {
