@@ -239,6 +239,22 @@ export function createGizmos(scene) {
   }
   function hideGuides() { guides.visible = false; }
 
+  // ------------------------------------------------------------ selected wall frame (amber outline on the wall face)
+  let wallFrameMesh = null;
+  function showWallFrame(attachGroup, length, height) {
+    hideWallFrame();
+    const shape = roundedRectShape(length / 2 + 0.08, height / 2 + 0.08, 0.2);
+    shape.holes.push(roundedRectShape(length / 2 - 0.06, height / 2 - 0.06, 0.12));
+    wallFrameMesh = new THREE.Mesh(new THREE.ShapeGeometry(shape, 6), flatMaterial(AMBER, 0.95, { depthTest: true }));
+    wallFrameMesh.position.set(length / 2, height / 2, 0.05);
+    wallFrameMesh.renderOrder = 19;
+    wallFrameMesh.userData = { kind: 'wall-frame', pickable: false };
+    attachGroup.add(wallFrameMesh);
+  }
+  function hideWallFrame() {
+    if (wallFrameMesh) { wallFrameMesh.parent?.remove(wallFrameMesh); disposeObject(wallFrameMesh); wallFrameMesh = null; }
+  }
+
   // ------------------------------------------------------------ window snap guide (amber line on a wall)
   let snapGuide = null;
   function showSnapGuide(attachGroup, u0, u1, v) {
@@ -285,7 +301,7 @@ export function createGizmos(scene) {
   function getGhost() { return ghost; }
 
   function dispose() {
-    hideRotation(); hideGhost(); hideSnapGuide();
+    hideRotation(); hideGhost(); hideSnapGuide(); hideWallFrame();
     for (const id of [...halos.keys()]) clearHalo(id);
     guideLines.forEach((l) => l.geometry.dispose());
     guideMat.dispose();
@@ -298,6 +314,7 @@ export function createGizmos(scene) {
     setHalo, clearHalo,
     showGuides, hideGuides,
     showSnapGuide, hideSnapGuide,
+    showWallFrame, hideWallFrame, hasWallFrame: () => !!wallFrameMesh,
     showGhost, setGhostValid, hideGhost, getGhost,
     dispose,
   };

@@ -277,7 +277,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
 
   function clearSelectionVisuals(sel) {
     if (sel.kind === 'entity') { entityViews.setSelected(sel.id, false); gizmos.hideRotation(); }
-    if (sel.kind === 'wall') roomView.setWallHighlight(sel.id, hover.kind === 'wall' && hover.id === sel.id ? 'hover' : 'none');
+    if (sel.kind === 'wall') { gizmos.hideWallFrame(); roomView.setWallHighlight(sel.id, hover.kind === 'wall' && hover.id === sel.id ? 'hover' : 'none'); }
     if (sel.kind === 'floor') roomView.setFloorHighlight(hover.kind === 'floor' ? 'hover' : 'none');
   }
 
@@ -298,6 +298,8 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
       else gizmos.hideRotation();
     } else if (sel.kind === 'wall') {
       roomView.setWallHighlight(sel.id, 'selected');
+      const wall = roomView.walls[sel.id];
+      if (wall) gizmos.showWallFrame(wall.attachGroup, wall.frame.length, ws.room.wallHeight);
     } else if (sel.kind === 'floor') {
       roomView.setFloorHighlight('selected');
     }
@@ -505,6 +507,28 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     return ok;
   }
 
+  /**
+   * Nearest spot on a wall for `entity` (which may or may not be in ws yet) near {u, v}: clamped to the
+   * wall, kept out of openings (hard), and slid along the wall away from other wall items when possible.
+   */
+  function freeWallSpot(entity, desired) {
+    const frame = getWall(entity.parent);
+    if (!frame) return null;
+    const start = clampWallEntity(ws, entity, desired);
+    const overlaps = (u, v) => ws.entities.some((o) => o.anchor === 'wall' && o.parent === entity.parent && o.id !== entity.id &&
+      G.rectOverlap({ u0: u - entity.width / 2, u1: u + entity.width / 2, v0: v, v1: v + entity.height },
+        { u0: o.position.u - o.width / 2, u1: o.position.u + o.width / 2, v0: o.position.v, v1: o.position.v + o.height }));
+    if (!overlaps(start.u, start.v)) return start;
+    for (let d = SNAP_WALL; d < frame.length; d += SNAP_WALL) {
+      for (const u of [start.u + d, start.u - d]) {
+        if (u - entity.width / 2 < -1e-6 || u + entity.width / 2 > frame.length + 1e-6) continue;
+        const c = clampWallEntity(ws, { ...entity, position: { u, v: start.v } }, { u, v: start.v });
+        if (Math.abs(c.u - u) < 1e-6 && !overlaps(c.u, c.v)) return c;
+      }
+    }
+    return start;
+  }
+
   /** Finish inserting an entity that state.duplicateEntity / clipboard.paste already pushed into ws. */
   function finalizeInserted(copy, label, before) {
     if (copy.anchor === 'floor') {
@@ -512,22 +536,9 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
       if (!pos) { cancelEdit(before); return null; }
       copy.position = pos;
     } else {
-      const frame = getWall(copy.parent);
-      if (!frame) { cancelEdit(before); return null; }
-      copy.position = clampWallEntity(ws, copy, { u: copy.position.u, v: copy.position.v });
-      // slide along the wall to find a free spot if it overlaps another wall item
-      const overlaps = (u) => ws.entities.some((o) => o.anchor === 'wall' && o.parent === copy.parent && o.id !== copy.id &&
-        G.rectOverlap({ u0: u - copy.width / 2, u1: u + copy.width / 2, v0: copy.position.v, v1: copy.position.v + copy.height },
-          { u0: o.position.u - o.width / 2, u1: o.position.u + o.width / 2, v0: o.position.v, v1: o.position.v + o.height }));
-      if (overlaps(copy.position.u)) {
-        search: for (let d = SNAP_WALL; d < frame.length; d += SNAP_WALL) {
-          for (const u of [copy.position.u + d, copy.position.u - d]) {
-            if (u - copy.width / 2 < 0 || u + copy.width / 2 > frame.length) continue;
-            const c = clampWallEntity(ws, { ...copy, position: { u, v: copy.position.v } }, { u, v: copy.position.v });
-            if (Math.abs(c.u - u) < 1e-6 && !overlaps(u)) { copy.position = c; break search; }
-          }
-        }
-      }
+      const spot = freeWallSpot(copy, { u: copy.position.u, v: copy.position.v });
+      if (!spot) { cancelEdit(before); return null; }
+      copy.position = spot;
     }
     endEdit(label, before);
     select({ kind: 'entity', id: copy.id }, { focus: false });
@@ -646,10 +657,14 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     const frame = getWall(wallId);
     if (!style || !frame) return null;
     const height = Math.min(style.height, ws.room.wallHeight - 0.5);
-    const centerU = u ?? frame.length / 2;
-    return placeWallEntity('window', wallId, centerU, Math.min(style.sill, ws.room.wallHeight - height), {
-      width: Math.min(style.width, frame.length), height, meta: { style: styleId },
-    });
+    const width = Math.min(style.width, frame.length);
+    const sill = Math.min(style.sill, ws.room.wallHeight - height);
+    // never across a door or another window; prefer a span clear of wall fixtures too
+    const probe = defaultEntityFor(getDef('window'), { parent: wallId, position: { u: u ?? frame.length / 2, v: sill }, width, height, meta: { style: styleId } });
+    probe.id = 'probe';
+    const spot = freeWallSpot(probe, { u: G.snap(probe.position.u, SNAP_WALL), v: sill });
+    if (!spot) return null;
+    return placeWallEntity('window', wallId, spot.u, spot.v, { width, height, meta: { style: styleId } });
   }
 
   function setWindowStyle(id, styleId) {

@@ -19,7 +19,7 @@ const PLANTER_COLORS = { terracotta: '#b9613a', charcoal: '#3a3633', sage: '#7f9
 const HIGHLIGHTS = {
   none: { color: 0x000000, intensity: 0 },
   hover: { color: 0xe0a33b, intensity: 0.07 },
-  selected: { color: 0xe0a33b, intensity: 0.18 },
+  selected: { color: 0xe0a33b, intensity: 0.05 }, // faint: the amber frame outline carries the selection; hue must stay true
   'target-valid': { color: 0x7f9270, intensity: 0.3 },
   'target-invalid': { color: 0xc0392b, intensity: 0.3 },
 };

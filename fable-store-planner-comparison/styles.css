@@ -976,6 +976,10 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 .swatch--wide .swatch__name { font-size: 13px; }
 
 .color-wheel-host { margin: 4px 0 12px; }
+/* inside the 300 px finish panel the disc and side column cannot sit side by side: stack them */
+.finish__body .color-wheel { grid-template-columns: 1fr; justify-items: center; }
+.finish__body .color-wheel__side { width: 100%; }
+.color-wheel__hex { min-width: 0; white-space: nowrap; }
 
 .recent-colors-host { margin-top: 2px; }
 .recent-colors { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }

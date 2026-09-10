@@ -78,7 +78,17 @@ export function createFinishPanel(studio, { palette, toasts }) {
   function heading(text) { const h = document.createElement('h3'); h.className = 'details__section'; h.textContent = text; return h; }
   function note(text) { const p = document.createElement('p'); p.className = 'details__text'; p.textContent = text; return p; }
 
-  function destroyWheel() { if (wheel) { wheel.destroy(); wheel = null; } }
+  let suppressRefresh = false;
+  /** A scrub interrupted by a re-render (Escape, tab change, mode exit) still becomes exactly one undo entry. */
+  function finishPendingScrub() {
+    if (previewRaf) { cancelAnimationFrame(previewRaf); previewRaf = 0; }
+    if (!scrubBefore) return;
+    const before = scrubBefore;
+    scrubBefore = null;
+    suppressRefresh = true;
+    try { studio.endEdit('Change colour', before); } finally { suppressRefresh = false; }
+  }
+  function destroyWheel() { finishPendingScrub(); if (wheel) { wheel.destroy(); wheel = null; } }
 
   function schedulePreview(fn) {
     if (previewRaf) return;
@@ -348,7 +358,7 @@ export function createFinishPanel(studio, { palette, toasts }) {
     if (mode === 'finish') { renderTabs(); renderBody(); } else { destroyWheel(); palette.cancel(); }
   });
   studio.on('selection', () => { if (studio.getMode() === 'finish') renderBody(); });
-  studio.on('change', () => { if (studio.getMode() === 'finish' && !scrubBefore && !wheelActive()) renderBody(); });
+  studio.on('change', () => { if (suppressRefresh) return; if (studio.getMode() === 'finish' && !scrubBefore && !wheelActive()) renderBody(); });
 
   function wheelActive() { return wheel && wheel.element.contains(document.activeElement) && document.activeElement !== doneBtn; }
 

@@ -697,6 +697,48 @@ async function main() {
     return guideShown ? 'drag labels shown' : '';
   });
 
+  await step('Regressions: windows avoid door openings; interrupted scrub is one entry; wall selection frame; hex readout fits', async () => {
+    // a window added to the front wall (entrance door centred at u=20) must not sit across the door
+    await S(() => window.__studio.select({ kind: 'wall', id: 'w2' }));
+    await page.waitForTimeout(150);
+    const win = await S(() => window.__studio.studio.addWindow('picture', 'w2'));
+    const door = (await state()).entities.find((e) => e.type === 'door' && e.meta.role === 'entrance');
+    const overlapsDoor = win.position.u - win.width / 2 < door.position.u + door.width / 2 && win.position.u + win.width / 2 > door.position.u - door.width / 2;
+    assert(!overlapsDoor, `window kept clear of the entrance (u=${win.position.u})`);
+    // dragging it into the door is refused too
+    await S(([id, u]) => window.__studio.studio.moveEntity(id, { u }), [win.id, door.position.u]);
+    const after = (await state()).entities.find((e) => e.id === win.id);
+    assert(after.position.u - after.width / 2 >= door.position.u + door.width / 2 - 1e-6 || after.position.u + after.width / 2 <= door.position.u - door.width / 2 + 1e-6, 'window pushed out of the opening');
+    await S((id) => window.__studio.studio.removeEntity(id), win.id);
+    // selected wall shows an amber frame while keeping its finish
+    await S(() => window.__studio.select({ kind: 'wall', id: 'w0' }));
+    await page.waitForTimeout(150);
+    assert(await S(() => window.__studio.studio.gizmos.hasWallFrame()), 'wall frame shown');
+    await page.keyboard.press('Escape');
+    assert(!(await S(() => window.__studio.studio.gizmos.hasWallFrame())), 'wall frame cleared');
+    // hex readout is fully visible inside the panel
+    await page.locator('#finish-tabs .tab', { hasText: 'Walls' }).click();
+    await page.locator('#finish-body .swatch', { hasText: 'Custom color' }).click();
+    await page.waitForTimeout(150);
+    const hex = await page.locator('#finish-body .color-wheel__hex').evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, right: el.getBoundingClientRect().right, panelRight: el.closest('#finish-body').getBoundingClientRect().right }));
+    assert(hex.sw <= hex.cw + 1 && hex.right <= hex.panelRight + 1, `hex readout not clipped ${JSON.stringify(hex)}`);
+    // a scrub interrupted by Escape still lands as exactly one undo entry
+    await page.locator('#finish-body .color-wheel__canvas').scrollIntoViewIfNeeded();
+    const wheel = await page.locator('#finish-body .color-wheel__canvas').boundingBox();
+    const undoBefore = await S(() => window.__studio.studio.undoLabel());
+    await page.mouse.move(wheel.x + wheel.width / 2, wheel.y + wheel.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(wheel.x + wheel.width * 0.75, wheel.y + wheel.height * 0.4, { steps: 6 });
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    assert((await S(() => window.__studio.studio.undoLabel())) === 'Change colour', `one entry for the interrupted scrub (top: ${await S(() => window.__studio.studio.undoLabel())}, before: ${undoBefore})`);
+    const colourAfter = (await state()).finishes.wallDefault.color;
+    await page.keyboard.press('Control+z');
+    assert((await state()).finishes.wallDefault.color !== colourAfter, 'single undo reverts the interrupted scrub');
+    await page.keyboard.press('Control+y');
+  });
+
   await step('Door styles can be changed (selected door and all doors)', async () => {
     await page.locator('#finish-tabs .tab', { hasText: 'Doors' }).click();
     await page.locator('#finish-body .swatch', { hasText: 'Double Oak' }).click();

@@ -71,7 +71,7 @@ export function clampWallEntity(ws, entity, desired) {
   const clampV = (v) => (wallHeight < entity.height ? 0 : Math.min(wallHeight - entity.height, Math.max(0, v)));
   const u = clampU(finite(desired?.u, entity.position.u));
   const v = clampV(finite(desired?.v, entity.position.v));
-  if (isOpening(entity)) return { u, v };
+  if (entity.type === 'door') return { u, v }; // doors are positioned by the floor plan; windows avoid other openings
 
   const openings = ws.entities
     .filter((other) => other.id !== entity.id && other.anchor === 'wall' && other.parent === entity.parent && isOpening(other))

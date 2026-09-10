@@ -561,11 +561,12 @@ test('clampWallEntity clamps to the wall and pushes fixtures out of openings', (
   assert.deepEqual(clampWallEntity(ws, low, { u: 10, v: 2 }), { u: 7, v: 2 }, 'overlapping the window: pushed left');
   assert.deepEqual(clampWallEntity(ws, low, { u: 11.5, v: 4 }), { u: 13, v: 4 }, 'pushed right');
 
-  // Openings themselves only clamp to the wall.
+  // Doors only clamp to the wall (the floor plan positions them); windows are pushed out of door openings.
   const entrance = doorOf(ws, 'entrance');
   assert.deepEqual(clampWallEntity(ws, entrance, { u: -1, v: 3 }), { u: 3, v: 2 });
   const win = addEntity(ws, { type: 'window', parent: 'w2', position: { u: 30, v: 3 } });
-  assert.deepEqual(clampWallEntity(ws, win, { u: 20, v: 3 }), { u: 20, v: 3 }, 'a window may sit over a door (soft)');
+  assert.deepEqual(clampWallEntity(ws, win, { u: 20, v: 3 }), { u: 15, v: 3 }, 'a window is pushed out of the entrance opening');
+  assert.deepEqual(clampWallEntity(ws, win, { u: 30, v: 3 }), { u: 30, v: 3 }, 'a window clear of openings stays put');
 
   // Fallback: the door hugs the wall start, so the pushed panel would leave the wall.
   const dock = defaultStore();
