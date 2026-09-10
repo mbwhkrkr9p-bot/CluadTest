@@ -185,9 +185,10 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     emit('change', { label, ws });
   }
 
+  let heightSig = null;
   function roomSignature() {
     const entrance = ws.entities.find((e) => e.type === 'door' && e.meta?.role === 'entrance');
-    return JSON.stringify([ws.room.polygon, ws.room.wallIds, ws.room.wallHeight, ws.room.wallThickness,
+    return JSON.stringify([ws.room.polygon, ws.room.wallIds, ws.room.wallThickness,
       entrance ? [entrance.parent, entrance.position.u, entrance.width] : null]);
   }
   function finishSignature() { return JSON.stringify(ws.finishes); }
@@ -199,10 +200,23 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
       entityViews.detachAll();
       roomView.build(ws);
       roomSig = rs;
+      heightSig = ws.room.wallHeight;
       finishSig = finishSignature();
       const b = roomBounds();
       sceneCtx.fitShadowsTo(b);
       rig.setHome(computeHome());
+    } else if (ws.room.wallHeight !== heightSig) {
+      // Height-only change: cheaper wall rebuild that keeps the floor, exterior and attachments.
+      entityViews.detachAll();
+      roomView.setWallHeight(ws.room.wallHeight);
+      heightSig = ws.room.wallHeight;
+      finishSig = finishSignature();
+      entityViews.sync(ws);
+      entityViews.remountAll(ws);
+      cutaway.reset();
+      refreshSelectionVisuals();
+      requestRender();
+      return;
     } else {
       const fs = finishSignature();
       if (fs !== finishSig) { roomView.applyFinishes(ws); finishSig = fs; }
