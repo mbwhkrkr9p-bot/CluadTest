@@ -2,11 +2,14 @@
 export function createToasts({ container, announcer, reducedMotion = false }) {
   let hintEl = null;
 
+  let announceTimer = 0;
   function announce(text) {
     if (!announcer) return;
     announcer.textContent = '';
-    // Re-set on the next frame so identical messages are announced again.
-    requestAnimationFrame(() => { announcer.textContent = text; });
+    // Re-set shortly after clearing so identical messages are announced again (not frame-bound,
+    // so it stays prompt even while a toast animation is rendering).
+    clearTimeout(announceTimer);
+    announceTimer = setTimeout(() => { announcer.textContent = text; }, 40);
   }
 
   function show(text, { kind = 'info', duration = 3200, milestone = false, glyph = '' } = {}) {
