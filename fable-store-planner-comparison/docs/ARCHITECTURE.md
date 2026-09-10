@@ -103,7 +103,11 @@ World transforms, collision bounds and top-down footprints are always computed f
 * `cameraRig.js` is a damped spherical orbit with polar and distance clamps (the camera never drops
   below 0.5 ft), focus tweens and the cinematic review orbit. It has no DOM listeners; `input.js`
   translates Pointer Events (mouse, trackpad, touch, pen) into orbit/pan/pinch/zoom or into
-  manipulation sessions from `manipulate.js`.
+  manipulation sessions from `manipulate.js`. Floor drags run on the horizontal plane through the
+  grab point (not the floor plane), so a fixture grabbed near its top stays under the pointer instead
+  of jumping by the parallax offset; wall drags run on the owning wall's plane in `u/v`.
+* Wall-height changes take a cheaper path than floor-plan edits: the room view rebuilds only the
+  walls and re-parents attached objects, so the floor, exterior context and fixtures are untouched.
 * `cutaway.js` fades any wall whose outer side faces the camera (camera beyond the wall plane) and
   marks its face and attached objects non-pickable, so the interior is always visible and clickable.
 * Raycasting (`picking.js`) only considers objects flagged `userData.pickable`; decoration (grid,
