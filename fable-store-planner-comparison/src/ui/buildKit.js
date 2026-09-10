@@ -114,7 +114,7 @@ export function createBuildKit(studio, { palette, toasts }) {
       card.classList.remove('is-dragging');
       try { card.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
       if (drag.dragging) {
-        card.dataset.skipClick = '1';
+        card.dataset.skipUntil = String(performance.now() + 400); // swallow only the synthetic click of this gesture
         if (e.type === 'pointercancel') { palette.cancel(); return; }
         const placed = palette.placeAt(e.clientX, e.clientY);
         if (!placed) toasts.show(def.anchor === 'wall' ? 'Drop it on a wall to place it.' : 'Drop it on the floor to place it.', { kind: 'info', duration: 2200 });
@@ -124,7 +124,8 @@ export function createBuildKit(studio, { palette, toasts }) {
     card.addEventListener('pointercancel', finish);
     card.addEventListener('click', () => {
       // A click that followed a drag is ignored (the drag already handled placement).
-      if (card.dataset.skipClick) { delete card.dataset.skipClick; return; }
+      if (Number(card.dataset.skipUntil || 0) > performance.now()) { delete card.dataset.skipUntil; return; }
+      delete card.dataset.skipUntil;
       tapPlace(def);
     });
   }

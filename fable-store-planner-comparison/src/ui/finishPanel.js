@@ -264,14 +264,18 @@ export function createFinishPanel(studio, { palette, toasts }) {
       const d = drag; drag = null;
       try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
       if (d.started) {
-        el.dataset.skipClick = '1';
+        el.dataset.skipUntil = String(performance.now() + 400);
         if (e.type === 'pointercancel') palette.cancel();
         else if (!palette.placeAt(e.clientX, e.clientY)) toasts.show('Drop it on a wall to place it.', { kind: 'info', duration: 2200 });
       }
     };
     el.addEventListener('pointerup', finish);
     el.addEventListener('pointercancel', finish);
-    el.addEventListener('click', (e) => { if (el.dataset.skipClick) { delete el.dataset.skipClick; e.stopImmediatePropagation(); } }, true);
+    el.addEventListener('click', (e) => {
+      const skip = Number(el.dataset.skipUntil || 0) > performance.now();
+      delete el.dataset.skipUntil;
+      if (skip) e.stopImmediatePropagation();
+    }, true);
   }
 
   // ------------------------------------------------------------------ doors

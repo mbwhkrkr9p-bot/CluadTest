@@ -144,7 +144,7 @@ export function createPalette(studio, { canvas, ghostEl, ghostCanvas, ghostLabel
     let placed = null;
     if (t && t.valid) {
       const e = placing.entity;
-      if (placing.def.anchor === 'floor') placed = studio.placeFloorEntity(placing.defId, t.position.x, t.position.z);
+      if (placing.def.anchor === 'floor') placed = studio.placeFloorEntity(placing.defId, t.position.x, t.position.z, {}, { allowOverlap: true });
       else placed = studio.placeWallEntity(placing.defId, t.wallId, t.position.u, t.position.v, { width: e.width, height: e.height, meta: e.meta });
     }
     cancel(true);

@@ -426,6 +426,69 @@ async function main() {
     await S(() => window.__studio.select({ kind: 'none' }));
   });
 
+  await step('Regressions: open-frame picking, ghost-true drops, handle wins over body, undo guarded mid-drag', async () => {
+    await S(() => window.__studio.select({ kind: 'none' }));
+    await settle();
+    // open-frame fixture is pickable anywhere on its silhouette (invisible hit proxy)
+    const rack = await S(() => window.__studio.place('four-way-rack', -12, -6));
+    await S(() => window.__studio.select({ kind: 'none' }));
+    await settle();
+    let hits = 0;
+    for (const [fx, fy] of [[0.3, 0.5], [0.7, 0.5], [0.5, 0.3], [0.5, 0.7], [0.4, 0.6]]) {
+      const p = await S(([id, fx, fy]) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x + (fx - 0.5) * e.width, e.height * fy, e.position.z + (fy - 0.5) * e.depth); }, [rack.id, fx, fy]);
+      const k = await S(([x, y]) => { const h = window.__studio.pick(x, y); return h.kind === 'entity' ? h.id : h.kind; }, [p.x, p.y]);
+      if (k === rack.id) hits++;
+    }
+    assert(hits >= 4, `silhouette taps hit the rack ${hits}/5`);
+    // a palette drop over an occupied spot lands where the ghost showed it (soft overlap), not elsewhere
+    const table = await S(() => window.__studio.place('display-table', 8, 8));
+    await page.locator('.kit-card[data-def="display-table"]').scrollIntoViewIfNeeded();
+    const card = await page.locator('.kit-card[data-def="display-table"]').boundingBox();
+    const over = await S(() => window.__studio.project(8, 0, 8));
+    await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(card.x + card.width / 2 + 30, card.y + 10, { steps: 3 });
+    await page.mouse.move(over.x, over.y, { steps: 8 });
+    await page.waitForTimeout(100);
+    assert(/overlaps/.test(await page.locator('#drag-ghost-label').innerText()), 'ghost announces the overlap');
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const tables = (await state()).entities.filter((e) => e.type === 'display-table' && Math.abs(e.position.x - 8) < 1 && Math.abs(e.position.z - 8) < 1);
+    assert(tables.length === 2, `dropped exactly where previewed (${tables.length})`);
+    assert((await S(() => window.__studio.collisions().count)) > 0, 'soft overlap warning raised');
+    const dropped = tables.find((e) => e.id !== table.id);
+    await S((id) => window.__studio.studio.removeEntity(id), dropped.id);
+    // the rotation handle is grabbable even where the fixture body occludes it
+    const shelf = await S(() => window.__studio.place('custom-shelf', 0, -4));
+    await S((id) => window.__studio.studio.rotateEntity(id, 180), shelf.id);
+    await S((id) => window.__studio.select({ kind: 'entity', id }), shelf.id);
+    await page.waitForTimeout(150);
+    await settle();
+    const r = await S(() => window.__studio.studio.gizmos.getRotationRadius());
+    const hp = await S(([id, hr]) => { const e = window.__studio.getState().entities.find((x) => x.id === id); const a = e.rotation * Math.PI / 180; return window.__studio.project(e.position.x + Math.sin(a) * hr, 0.03, e.position.z + Math.cos(a) * hr); }, [shelf.id, r + 0.75]);
+    assert((await S(([x, y]) => window.__studio.pick(x, y).kind, [hp.x, hp.y])) === 'rotate-handle', 'handle wins over the shelf body');
+    // the touch band is at least fingertip-sized on screen
+    const band = await S(() => window.__studio.studio.gizmos.getTouchBand());
+    const px = await S(([id, b]) => { const e = window.__studio.getState().entities.find((x) => x.id === id); const a = window.__studio.project(e.position.x, 0, e.position.z); const c = window.__studio.project(e.position.x + b * 2, 0, e.position.z); return Math.hypot(a.x - c.x, a.y - c.y); }, [shelf.id, band]);
+    assert(px >= 40, `touch band ≈ ${px.toFixed(0)} px on screen`);
+    // undo button is ignored while a drag is in progress
+    await S(() => window.__studio.select({ kind: 'none' }));
+    await settle();
+    const n0 = (await state()).entities.length;
+    const grab = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, e.height * 0.9, e.position.z); }, table.id);
+    await page.mouse.move(grab.x, grab.y);
+    await page.mouse.down();
+    await page.mouse.move(grab.x + 40, grab.y, { steps: 4 });
+    const undoBox = await page.locator('#btn-undo').boundingBox();
+    await S(([x, y]) => { document.elementFromPoint(x, y).closest('button')?.click(); }, [undoBox.x + undoBox.width / 2, undoBox.y + undoBox.height / 2]);
+    await page.mouse.move(grab.x + 80, grab.y, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    assert((await state()).entities.length === n0, 'nothing was undone mid-drag');
+    await S(([a, b]) => { window.__studio.studio.removeEntity(a); window.__studio.studio.removeEntity(b); window.__studio.select({ kind: 'none' }); }, [rack.id, shelf.id]);
+    await S((id) => window.__studio.studio.removeEntity(id), table.id);
+  });
+
   // ---------------------------------------------------------------- resize
   await step('Custom Shelf dimensions and levels update the geometry', async () => {
     const shelf = await S(() => window.__studio.place('custom-shelf', 10, 8));
@@ -851,6 +914,23 @@ async function main() {
     await p3.waitForTimeout(600);
     const d1 = await p3.evaluate(() => window.__studio.rig.distance);
     assert(d1 < d0, `pinch zoomed in ${d0} -> ${d1}`);
+    // a card drag followed by a plain tap on the same card must arm tap-to-place (no swallowed tap)
+    await p3.evaluate(() => { window.__studio.select({ kind: 'none' }); window.__studio.studio.home(false); window.__studio.render(); });
+    await p3.waitForTimeout(300);
+    await p3.waitForFunction(() => !window.__studio.studio.isAnimating(), null, { timeout: 20000 }).catch(() => {});
+    await p3.locator('.kit-card[data-def="dump-bin"]').scrollIntoViewIfNeeded();
+    const cardBox = await p3.locator('.kit-card[data-def="dump-bin"]').boundingBox();
+    const drop = await p3.evaluate(() => window.__studio.project(6, 0, 6));
+    const cx0 = cardBox.x + cardBox.width / 2, cy0 = cardBox.y + cardBox.height / 2;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx0, y: cy0 }] });
+    for (let i = 1; i <= 10; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx0 + (drop.x - cx0) * i / 10, y: cy0 + (drop.y - cy0) * i / 10 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await p3.waitForTimeout(300);
+    assert((await p3.evaluate(() => window.__studio.getState().entities.filter((e) => e.type === 'dump-bin').length)) === 1, 'touch drag placed the bin');
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx0, y: cy0 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await p3.waitForTimeout(300);
+    assert(await p3.evaluate(() => window.__studio.palette.isPlacing()), 'tap after a drag arms placement');
     await ctx3.close();
   });
 

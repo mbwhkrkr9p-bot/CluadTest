@@ -90,7 +90,14 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     if (animating) rafId = requestAnimationFrame(tick);
     else lastTime = 0;
   }
-  rig.onChange(() => { cutaway.update(); emit('camera'); });
+  rig.onChange(() => {
+    cutaway.update();
+    if (selection.kind === 'entity') {
+      const e = getEntity(selection.id);
+      if (e && e.anchor === 'floor') gizmos.setTouchBand(touchBandFor(e));
+    }
+    emit('camera');
+  });
 
   // ------------------------------------------------------------------ helpers
   const getState = () => ws;
@@ -271,13 +278,20 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     if (sel.kind === 'floor') roomView.setFloorHighlight(hover.kind === 'floor' ? 'hover' : 'none');
   }
 
+  /** Radial half-width of the rotation touch band so it spans at least ~48 px on screen at the fixture's distance. */
+  function touchBandFor(entity) {
+    const dist = camera.position.distanceTo(new THREE.Vector3(entity.position.x, 0, entity.position.z));
+    const worldPerPixel = (2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(1, canvas.clientHeight || 1);
+    return Math.max(0.9, 24 * worldPerPixel);
+  }
+
   function refreshSelectionVisuals() {
     const sel = selection;
     if (sel.kind === 'entity') {
       const e = getEntity(sel.id);
       if (!e) return;
       entityViews.setSelected(e.id, true);
-      if (e.anchor === 'floor' && mode === 'build') gizmos.showRotation({ ...e.position, width: e.width, depth: e.depth, rotation: e.rotation });
+      if (e.anchor === 'floor' && mode === 'build') gizmos.showRotation({ ...e.position, width: e.width, depth: e.depth, rotation: e.rotation }, touchBandFor(e));
       else gizmos.hideRotation();
     } else if (sel.kind === 'wall') {
       roomView.setWallHighlight(sel.id, 'selected');
@@ -360,10 +374,20 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
   }
 
   // ------------------------------------------------------------------ entity operations
-  function placeFloorEntity(defId, x, z, extra = {}) {
+  /**
+   * Place a floor fixture near (x, z). By default a free spot is searched for; with
+   * `allowOverlap` (palette drops that previewed the exact spot) the snapped position is kept
+   * whenever it is inside the room, and any overlap becomes the usual soft warning.
+   */
+  function placeFloorEntity(defId, x, z, extra = {}, { allowOverlap = false } = {}) {
     const def = getDef(defId);
     const entity = defaultEntityFor(def, { ...extra, position: { x, z } });
-    const pos = resolveFloorPosition(entity, x, z, null);
+    let pos = null;
+    if (allowOverlap) {
+      const obb = { ...entityObb(entity), x: G.snap(x, SNAP_FLOOR), z: G.snap(z, SNAP_FLOOR) };
+      if (G.obbInsidePolygon(obb, ws.room.polygon)) pos = { x: obb.x, z: obb.z };
+    }
+    if (!pos) pos = resolveFloorPosition(entity, x, z, null);
     if (!pos) return null;
     entity.position = pos;
     let placed = null;

@@ -59,12 +59,32 @@ export function createEntityViews(scene, roomView, gizmos) {
     });
   }
 
+  /**
+   * Invisible box covering the entity's bounding volume so open-frame fixtures (racks, grids)
+   * can be tapped anywhere on their silhouette. Raycasting ignores `visible`; the picker
+   * recognises `userData.hitProxy`. Never rendered, never tinted, never shadowed.
+   */
+  function addHitProxy(group, entity) {
+    const h = Math.max(entity.height, 0.3);
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(entity.width, h, entity.depth),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false }),
+    );
+    mesh.position.set(0, h / 2, entity.anchor === 'wall' ? entity.depth / 2 : 0);
+    mesh.visible = false;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.userData = { kind: 'hit-proxy', hitProxy: true, pickable: true, entityId: entity.id };
+    group.add(mesh);
+  }
+
   function build(entity) {
     const def = getDef(entity.type);
     const group = buildFixture(entity, def);
     group.userData.entityId = entity.id;
     group.userData.kind = 'entity';
     group.traverse((o) => { if (o !== group) o.userData.entityId = entity.id; });
+    addHitProxy(group, entity);
     return group;
   }
 
@@ -178,7 +198,7 @@ export function createEntityViews(scene, roomView, gizmos) {
     view.group.updateMatrixWorld(true);
     target.makeEmpty();
     view.group.traverse((o) => {
-      if (o.userData?.kind === 'halo' || !o.geometry) return;
+      if (o.userData?.kind === 'halo' || o.userData?.hitProxy || !o.geometry) return;
       if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
       const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
       target.union(b);

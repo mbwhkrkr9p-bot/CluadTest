@@ -92,8 +92,35 @@ export function createGizmos(scene) {
   let touchTarget = null;
   let rotationRadius = 0;
 
-  function showRotation(entityLike) {
+  let touchBand = 0.9;
+  let handleRadius = 0;
+  let handleSpan = 0;
+
+  function buildTouchTarget() {
+    if (touchTarget) { rotation.remove(touchTarget); disposeObject(touchTarget); touchTarget = null; }
+    const center = Math.PI / 2;
+    const inner = Math.max(0.2, handleRadius - touchBand);
+    const sector = new THREE.RingGeometry(inner, handleRadius + touchBand, 24, 1, center - handleSpan - 0.25, handleSpan * 2 + 0.5);
+    touchTarget = new THREE.Mesh(sector, flatMaterial(AMBER, 0.0));
+    touchTarget.rotation.x = -Math.PI / 2;
+    touchTarget.scale.set(1, -1, 1); // ring geometry angles are CCW in XY; after rotateX they mirror in Z
+    touchTarget.userData = { kind: 'rotate-handle', pickable: true };
+    touchTarget.renderOrder = 22;
+    rotation.add(touchTarget);
+    rotation.updateMatrixWorld(true);
+  }
+
+  /** Radial half-width (feet) of the invisible touch band; callers size it so it stays fingertip-sized on screen. */
+  function setTouchBand(band) {
+    const next = Math.max(0.9, band);
+    if (!rotation.visible || Math.abs(next - touchBand) < 0.15) { touchBand = next; return; }
+    touchBand = next;
+    buildTouchTarget();
+  }
+
+  function showRotation(entityLike, band = touchBand) {
     hideRotation();
+    touchBand = Math.max(0.9, band);
     const { x, z, width, depth, rotation: deg } = entityLike;
     const r = Math.hypot(width, depth) / 2 + 0.55;
     rotationRadius = r;
@@ -107,18 +134,14 @@ export function createGizmos(scene) {
     const center = Math.PI / 2;
     arrow = new THREE.Mesh(curvedArrowGeometry(handleR, center - span, center + span), flatMaterial(AMBER, 1));
     arrow.renderOrder = 21;
-    // generous invisible touch target (an annulus sector) around the arrow
-    const sector = new THREE.RingGeometry(handleR - 0.9, handleR + 0.9, 24, 1, center - span - 0.25, span * 2 + 0.5);
-    touchTarget = new THREE.Mesh(sector, flatMaterial(AMBER, 0.0));
-    touchTarget.rotation.x = -Math.PI / 2;
-    touchTarget.scale.set(1, -1, 1); // ring geometry angles are CCW in XY; after rotateX they mirror in Z
-    touchTarget.userData = { kind: 'rotate-handle', pickable: true };
-    touchTarget.renderOrder = 22;
-    rotation.add(ring, arrow, touchTarget);
+    rotation.add(ring, arrow);
+    handleRadius = handleR;
+    handleSpan = span;
     rotation.position.set(x, 0.03, z);
     rotation.rotation.y = THREE.MathUtils.degToRad(deg || 0);
     rotation.visible = true;
-    rotation.updateMatrixWorld(true);
+    // generous invisible touch target (an annulus sector) around the arrow
+    buildTouchTarget();
   }
 
   function updateRotation(entityLike) {
@@ -271,7 +294,7 @@ export function createGizmos(scene) {
 
   return {
     group,
-    showRotation, updateRotation, hideRotation, setRotationActive, getRotationRadius: () => rotationRadius,
+    showRotation, updateRotation, hideRotation, setRotationActive, setTouchBand, getRotationRadius: () => rotationRadius, getTouchBand: () => touchBand,
     setHalo, clearHalo,
     showGuides, hideGuides,
     showSnapGuide, hideSnapGuide,

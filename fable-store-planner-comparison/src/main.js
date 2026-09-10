@@ -93,8 +93,8 @@ function boot() {
     btnUndo.title = studio.canUndo() ? `Undo ${studio.undoLabel() || ''}`.trim() : 'Nothing to undo';
     btnRedo.title = studio.canRedo() ? `Redo ${studio.redoLabel() || ''}`.trim() : 'Nothing to redo';
   }
-  btnUndo.addEventListener('click', () => studio.undo());
-  btnRedo.addEventListener('click', () => studio.redo());
+  btnUndo.addEventListener('click', () => { if (!input.isBusy()) studio.undo(); });
+  btnRedo.addEventListener('click', () => { if (!input.isBusy()) studio.redo(); });
   studio.on('change', refreshHistory);
   studio.on('history', ({ action, label }) => toasts.announce(`${action === 'undo' ? 'Undid' : 'Redid'} ${label || 'edit'}`));
   refreshHistory();

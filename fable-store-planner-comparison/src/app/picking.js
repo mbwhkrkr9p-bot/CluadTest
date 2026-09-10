@@ -20,7 +20,7 @@ export function createPicker({ camera, canvas, roomView, entityViews, gizmos }) 
     let o = obj;
     while (o) {
       if (o.userData && o.userData.pickable === false) return false;
-      if (o.visible === false) return false;
+      if (o.visible === false && !(o.userData && o.userData.hitProxy)) return false;
       o = o.parent;
     }
     return true;
@@ -49,6 +49,10 @@ export function createPicker({ camera, canvas, roomView, entityViews, gizmos }) 
   function pick(clientX, clientY, opts = {}) {
     setRay(clientX, clientY);
     const hits = raycaster.intersectObjects(collectTargets(opts), true);
+    // The rotation handle is drawn on top of everything (depthTest off), so it must also win the pick
+    // even when the selected fixture's body sits between the camera and the handle.
+    const handle = hits.find((h) => h.object.userData?.kind === 'rotate-handle' && h.object.userData.pickable === true && isPickable(h.object));
+    if (handle) return { kind: 'rotate-handle', point: handle.point.clone(), object: handle.object };
     for (const hit of hits) {
       const obj = hit.object;
       if (!obj.userData || obj.userData.pickable !== true) continue;
