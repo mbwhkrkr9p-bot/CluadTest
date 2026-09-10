@@ -353,12 +353,16 @@ async function main() {
     const ws0 = await state();
     const panel = ws0.entities.find((e) => e.type === 'slatwall-panel');
     await S(() => window.__studio.select({ kind: 'none' }));
+    await settle();
+    // grab low on the panel face: the top of the back wall can sit under the HUD at the home distance
     const p = await S((id) => {
       const e = window.__studio.getState().entities.find((x) => x.id === id);
       const w = window.__studio.studio.getWall(e.parent);
-      return window.__studio.project(w.start.x + w.dir.x * e.position.u + w.normal.x * 0.1, e.position.v + e.height / 2, w.start.z + w.dir.z * e.position.u + w.normal.z * 0.1);
+      return window.__studio.project(w.start.x + w.dir.x * e.position.u + w.normal.x * 0.1, e.position.v + e.height * 0.3, w.start.z + w.dir.z * e.position.u + w.normal.z * 0.1);
     }, panel.id);
-    const target = await S(() => { const w = window.__studio.studio.getWall('w0'); return window.__studio.project(w.start.x + w.dir.x * 15, 3, w.start.z + w.dir.z * 15); });
+    const under = await S(([x, y]) => document.elementFromPoint(x, y)?.id, [p.x, p.y]);
+    assert(under === 'viewport', `grab point is on the canvas (got ${under})`);
+    const target = await S(() => { const w = window.__studio.studio.getWall('w0'); return window.__studio.project(w.start.x + w.dir.x * 15, 2.5, w.start.z + w.dir.z * 15); });
     await page.mouse.move(p.x, p.y);
     await page.mouse.down();
     await page.mouse.move(p.x + 8, p.y, { steps: 2 });
@@ -441,10 +445,11 @@ async function main() {
     }
     assert(hits >= 4, `silhouette taps hit the rack ${hits}/5`);
     // a palette drop over an occupied spot lands where the ghost showed it (soft overlap), not elsewhere
-    const table = await S(() => window.__studio.place('display-table', 8, 8));
+    const table = await S(() => window.__studio.place('display-table', -14, 10));
+    assert(near(table.position.x, -14) && near(table.position.z, 10), 'reference table sits at the requested free spot');
     await page.locator('.kit-card[data-def="display-table"]').scrollIntoViewIfNeeded();
     const card = await page.locator('.kit-card[data-def="display-table"]').boundingBox();
-    const over = await S(() => window.__studio.project(8, 0, 8));
+    const over = await S(() => window.__studio.project(-14, 0, 10));
     await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
     await page.mouse.down();
     await page.mouse.move(card.x + card.width / 2 + 30, card.y + 10, { steps: 3 });
@@ -453,7 +458,7 @@ async function main() {
     assert(/overlaps/.test(await page.locator('#drag-ghost-label').innerText()), 'ghost announces the overlap');
     await page.mouse.up();
     await page.waitForTimeout(200);
-    const tables = (await state()).entities.filter((e) => e.type === 'display-table' && Math.abs(e.position.x - 8) < 1 && Math.abs(e.position.z - 8) < 1);
+    const tables = (await state()).entities.filter((e) => e.type === 'display-table' && Math.abs(e.position.x + 14) < 1 && Math.abs(e.position.z - 10) < 1);
     assert(tables.length === 2, `dropped exactly where previewed (${tables.length})`);
     assert((await S(() => window.__studio.collisions().count)) > 0, 'soft overlap warning raised');
     const dropped = tables.find((e) => e.id !== table.id);
