@@ -1,0 +1,160 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Store fixtures harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f4efe7; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<canvas id="c"></canvas>
+<script type="module">
+  // Visual + bounds harness for src/render/fixtures/store.js.
+  //   ?only=<type|index>   render a single case, framed close up
+  //   ?az=<degrees>        orbit the close-up camera around the fixture
+  //   ?bounds=1            draw the expected bounding box of every case
+  import * as THREE from '../../../vendor/three/three.module.js';
+  import { buildStoreFixture, STORE_BUILDERS } from '../../../src/render/fixtures/store.js';
+  import { getDef, defaultEntityFor } from '../../../src/core/catalog.js';
+
+  const params = new URLSearchParams(location.search);
+  const only = params.get('only');
+  const az = Number(params.get('az') || 35);
+  const el = Number(params.get('el') || 0.5); // close-up camera height as a fraction of its distance
+  const showBounds = params.get('bounds') === '1';
+
+  const make = (type, overrides = {}) => defaultEntityFor(getDef(type), { id: `e_${type}`, ...overrides });
+  const cases = Object.keys(STORE_BUILDERS).map((type) => ({ label: type, entity: make(type) }));
+  cases.push(
+    { label: 'custom-shelf 8x8 L6 S1.25', entity: make('custom-shelf', { width: 8, height: 8, meta: { levels: 6, spacing: 1.25 } }) },
+    { label: 'gondola w10', entity: make('gondola', { width: 10 }) },
+    { label: 'rolling-rack w8', entity: make('rolling-rack', { width: 8 }) },
+    { label: 'service-counter w12', entity: make('service-counter', { width: 12 }) },
+  );
+  const selected = only ? cases.filter((c, i) => c.entity.type === only || String(i) === only) : cases;
+
+  // ---------------------------------------------------------------- scene
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap; // r186 dropped PCFSoftShadowMap (warns)
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#f4efe7');
+  const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 500);
+
+  const sun = new THREE.DirectionalLight('#fff4e0', 2.4);
+  sun.position.set(30, 60, 40);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(4096, 4096);
+  Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 200 });
+  sun.shadow.bias = -0.0002;
+  sun.shadow.normalBias = 0.02;
+  scene.add(sun, new THREE.HemisphereLight('#ffffff', '#c8bca8', 1.2));
+
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: '#d9d2c4', roughness: 0.95 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // ---------------------------------------------------------------- label sprites (harness only)
+  function label(text) {
+    const cv = document.createElement('canvas');
+    cv.width = 512; cv.height = 96;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = 'rgba(47,43,40,0.85)';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 40px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, cv.width / 2, cv.height / 2);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+    sp.scale.set(5, 5 * 96 / 512, 1);
+    return sp;
+  }
+
+  // ---------------------------------------------------------------- checks
+  const TOL = 0.05;
+  function triangles(group) {
+    let n = 0;
+    group.traverse((o) => {
+      if (!o.isMesh) return;
+      const geo = o.geometry;
+      n += geo.index ? geo.index.count / 3 : geo.getAttribute('position').count / 3;
+    });
+    return n;
+  }
+  function check(group, entity, name) {
+    const b = new THREE.Box3().setFromObject(group);
+    const { width: w, height: h, depth: d } = entity;
+    const problems = [];
+    if (b.min.x < -w / 2 - TOL) problems.push(`min.x ${b.min.x.toFixed(3)} < ${-w / 2}`);
+    if (b.max.x > w / 2 + TOL) problems.push(`max.x ${b.max.x.toFixed(3)} > ${w / 2}`);
+    if (b.min.z < -d / 2 - TOL) problems.push(`min.z ${b.min.z.toFixed(3)} < ${-d / 2}`);
+    if (b.max.z > d / 2 + TOL) problems.push(`max.z ${b.max.z.toFixed(3)} > ${d / 2}`);
+    if (b.max.y > h + TOL) problems.push(`max.y ${b.max.y.toFixed(3)} > ${h}`);
+    if (Math.abs(b.min.y) > TOL) problems.push(`base min.y ${b.min.y.toFixed(3)} not ~0`);
+    if (b.max.y < h * 0.6) problems.push(`max.y ${b.max.y.toFixed(3)} < 60% of ${h}`);
+    const tris = triangles(group);
+    if (tris > 3000) problems.push(`${tris} triangles > 3000`);
+    let meshes = 0;
+    group.traverse((o) => { if (o.isMesh) meshes++; });
+    const f = (v) => v.toArray().map((n) => n.toFixed(2)).join(',');
+    const msg = `${name}: box min=[${f(b.min)}] max=[${f(b.max)}] expect x±${w / 2} y0..${h} z±${d / 2} | ${meshes} meshes, ${tris} tris`;
+    console.log(problems.length ? `FAIL ${msg} :: ${problems.join('; ')}` : `PASS ${msg}`);
+    return { name, pass: problems.length === 0, problems, tris, meshes, box: { min: b.min.toArray(), max: b.max.toArray() } };
+  }
+
+  // ---------------------------------------------------------------- layout
+  const results = [];
+  const cols = 5, cell = 14;
+  const all = new THREE.Box3();
+  selected.forEach((c, i) => {
+    const group = buildStoreFixture(c.entity, getDef(c.entity.type));
+    results.push(check(group, c.entity, c.label));
+    if (!only) {
+      group.position.set((i % cols - (cols - 1) / 2) * cell, 0, (Math.floor(i / cols) - 1.5) * cell);
+      const sp = label(c.label);
+      sp.position.set(group.position.x, c.entity.height + 1.2, group.position.z);
+      scene.add(sp);
+    } else {
+      // Several cases of one type (default + custom size): line them up along X.
+      const total = selected.reduce((n, s) => n + s.entity.width + 2, 0);
+      const before = selected.slice(0, i).reduce((n, s) => n + s.entity.width + 2, 0);
+      group.position.x = before + c.entity.width / 2 + 1 - total / 2;
+    }
+    scene.add(group);
+    if (showBounds) {
+      const e = c.entity;
+      const bb = new THREE.Box3(new THREE.Vector3(-e.width / 2, 0, -e.depth / 2), new THREE.Vector3(e.width / 2, e.height, e.depth / 2));
+      bb.translate(group.position); // Box3Helper draws the box in world space
+      scene.add(new THREE.Box3Helper(bb, new THREE.Color('#b9613a')));
+    }
+    all.union(new THREE.Box3().setFromObject(group));
+  });
+
+  // ---------------------------------------------------------------- camera framing
+  const center = all.getCenter(new THREE.Vector3());
+  const size = all.getSize(new THREE.Vector3());
+  if (only) {
+    const radius = Math.max(size.x, size.y, size.z) * 0.62;
+    const dist = radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.05;
+    const a = THREE.MathUtils.degToRad(az);
+    const flat = Math.sqrt(Math.max(0.05, 1 - el * el));
+    camera.position.set(center.x + Math.sin(a) * dist * flat, center.y + dist * el, center.z + Math.cos(a) * dist * flat);
+  } else {
+    camera.position.set(0, 44, center.z + 62);
+    center.y = 0;
+    center.z += 2;
+  }
+  camera.lookAt(center);
+  renderer.render(scene, camera);
+
+  const pass = results.filter((r) => r.pass).length;
+  console.log(`SUMMARY ${pass}/${results.length} passed`);
+  window.__harnessDone = { pass, total: results.length, results };
+</script>

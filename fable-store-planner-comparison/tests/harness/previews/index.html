@@ -1,0 +1,76 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Previews harness</title>
+<style>
+  html, body { margin: 0; background: #f4efe7; font: 12px/1.3 system-ui, sans-serif; color: #2f2b28; }
+  body { padding: 12px; }
+  h2 { margin: 12px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
+  .grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .cell { background: rgba(255, 255, 255, 0.7); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .cell span { font-size: 10px; opacity: 0.75; }
+  canvas { display: block; }
+  #status { position: fixed; top: 4px; right: 8px; font-size: 11px; }
+</style>
+<div id="status">drawing…</div>
+<script type="module">
+  // Visual harness for src/render/previews.js: every catalog id at card and double size,
+  // every door and window style, and the compact ghost icons.
+  import { drawPreview, drawDoorPreview, drawWindowPreview, drawGhostIcon, PREVIEW_IDS } from '../../../src/render/previews.js';
+  import { CATALOG, DOOR_STYLES, WINDOW_STYLES } from '../../../src/core/catalog.js';
+
+  const params = new URLSearchParams(location.search);
+  const dpr = Number(params.get('dpr') || 1);
+
+  function section(title) {
+    const h = document.createElement('h2');
+    h.textContent = title;
+    document.body.append(h);
+    const g = document.createElement('div');
+    g.className = 'grid';
+    document.body.append(g);
+    return g;
+  }
+  function cell(grid, label, w, h, paint) {
+    const c = document.createElement('div');
+    c.className = 'cell';
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+    const ctx = canvas.getContext('2d');
+    if (dpr !== 1) ctx.scale(dpr, dpr);
+    paint(ctx, w, h);
+    const s = document.createElement('span');
+    s.textContent = label;
+    c.append(canvas, s);
+    grid.append(c);
+  }
+
+  const missing = CATALOG.map((d) => d.id).filter((id) => !PREVIEW_IDS.includes(id));
+  if (missing.length) throw new Error(`Missing previews: ${missing.join(', ')}`);
+
+  const g1 = section('Catalog cards 120 × 84');
+  for (const id of PREVIEW_IDS) cell(g1, id, 120, 84, (ctx, w, h) => drawPreview(ctx, id, w, h));
+  const g2 = section('Catalog cards 240 × 168');
+  for (const id of PREVIEW_IDS) cell(g2, id, 240, 168, (ctx, w, h) => drawPreview(ctx, id, w, h));
+  const g3 = section('Door styles 72 × 72');
+  for (const s of DOOR_STYLES) cell(g3, s.id, 72, 72, (ctx, w, h) => drawDoorPreview(ctx, s.id, w, h));
+  const g4 = section('Window styles 72 × 72');
+  for (const s of WINDOW_STYLES) cell(g4, s.id, 72, 72, (ctx, w, h) => drawWindowPreview(ctx, s.id, w, h));
+  const g5 = section('Ghost icons 64');
+  for (const id of PREVIEW_IDS) cell(g5, id, 64, 64, (ctx) => drawGhostIcon(ctx, id, 64));
+  const g6 = section('Entity variants 120 × 84');
+  const variants = [
+    ['custom-shelf', { width: 8, height: 8, meta: { levels: 6 } }],
+    ['gondola', { width: 10, meta: { levels: 3 } }],
+    ['rolling-rack', { width: 8 }],
+    ['service-counter', { width: 12 }],
+    ['pallet-rack', { height: 24, meta: { levels: 6 } }],
+    ['wire-shelving', { meta: { levels: 7 } }],
+    ['door', { meta: { style: 'black-steel' } }],
+    ['window', { meta: { style: 'storefront' } }],
+  ];
+  for (const [id, entity] of variants) cell(g6, `${id} (variant)`, 120, 84, (ctx, w, h) => drawPreview(ctx, id, w, h, { entity }));
+
+  document.getElementById('status').textContent = `ok: ${PREVIEW_IDS.length} ids`;
+  window.__previewsDone = true;
+</script>

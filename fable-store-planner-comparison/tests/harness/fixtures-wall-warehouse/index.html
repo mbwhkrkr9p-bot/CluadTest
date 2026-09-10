@@ -1,0 +1,260 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Wall + warehouse fixtures harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f4efe7; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<canvas id="c"></canvas>
+<script type="module">
+  // Visual + bounds harness for src/render/fixtures/wall.js and warehouse.js.
+  //   ?view=all|walls|doors|windows|warehouse|forklift   which subset the camera frames
+  //   ?az=<degrees>  ?el=<0..1>                            close-up camera azimuth / height fraction
+  //   ?focus=<label>,<label>                             frame only the named cases (overrides ?view)
+  //   ?bounds=1                                           draw the expected bounding box of every case
+  import * as THREE from '../../../vendor/three/three.module.js';
+  import { buildWallFixture, buildDoor, buildWindow, WALL_BUILDERS } from '../../../src/render/fixtures/wall.js';
+  import { buildWarehouseFixture, WAREHOUSE_BUILDERS } from '../../../src/render/fixtures/warehouse.js';
+  import { buildFixture, disposeFixture } from '../../../src/render/fixtures/index.js';
+  import { getDef, defaultEntityFor, DOOR_STYLES, WINDOW_STYLES } from '../../../src/core/catalog.js';
+
+  const params = new URLSearchParams(location.search);
+  const view = params.get('view') || 'all';
+  const focus = (params.get('focus') || '').split(',').filter(Boolean); // frame only these labels
+  const az = Number(params.get('az') || 20);
+  const el = Number(params.get('el') || 0.35);
+  const showBounds = params.get('bounds') === '1';
+
+  const make = (type, overrides = {}) => defaultEntityFor(getDef(type), { id: `e_${type}`, ...overrides });
+  const DOUBLE = new Set(['double-glass', 'french-oak', 'double-oak']);
+
+  // ---------------------------------------------------------------- cases
+  const cases = [];
+  for (const type of Object.keys(WALL_BUILDERS)) cases.push({ group: 'walls', label: type, entity: make(type) });
+  for (const s of DOOR_STYLES) {
+    cases.push({ group: 'doors', label: `door ${s.id}`, entity: make('door', { width: DOUBLE.has(s.id) ? 6 : 3.5, height: 7, meta: { style: s.id, role: 'entrance' } }) });
+  }
+  cases.push({ group: 'doors', label: 'door french-oak 3.5', entity: make('door', { width: 3.5, height: 7, meta: { style: 'french-oak', role: 'exit' } }) });
+  for (const s of WINDOW_STYLES) {
+    cases.push({ group: 'windows', label: `window ${s.id}`, entity: make('window', { width: s.width, height: s.height, position: { u: 0, v: s.sill }, meta: { style: s.id } }) });
+  }
+  for (const type of Object.keys(WAREHOUSE_BUILDERS)) cases.push({ group: type === 'forklift' ? 'forklift' : 'warehouse', label: type, entity: make(type) });
+  cases.push(
+    { group: 'warehouse', label: 'pallet-rack 12x24 L5', entity: make('pallet-rack', { width: 12, height: 24, meta: { levels: 5 } }) },
+    { group: 'warehouse', label: 'wire-shelving h8 L7', entity: make('wire-shelving', { height: 8, meta: { levels: 7 } }) },
+  );
+
+  // ---------------------------------------------------------------- scene
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap; // r186 dropped PCFSoftShadowMap (warns)
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#f4efe7');
+  const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 500);
+
+  const sun = new THREE.DirectionalLight('#fff4e0', 2.4);
+  sun.position.set(30, 60, 50);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(4096, 4096);
+  Object.assign(sun.shadow.camera, { left: -70, right: 70, top: 70, bottom: -70, near: 1, far: 220 });
+  sun.shadow.bias = -0.0002;
+  sun.shadow.normalBias = 0.02;
+  scene.add(sun, new THREE.HemisphereLight('#ffffff', '#c8bca8', 1.2));
+  // Procedural environment (like the app's scene.js) so metals and glass pick up reflections.
+  {
+    const env = new THREE.Scene();
+    env.add(new THREE.Mesh(new THREE.SphereGeometry(60, 16, 12), new THREE.MeshBasicMaterial({ color: '#d9d4cb', side: THREE.BackSide })));
+    const panel = (w, h, x, y, z, ry = 0) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: '#ffffff', side: THREE.DoubleSide }));
+      m.position.set(x, y, z); m.rotation.y = ry; m.lookAt(0, 0, 0); env.add(m);
+    };
+    panel(30, 12, 0, 40, 0); panel(20, 10, -35, 15, 20); panel(20, 10, 35, 15, 20); panel(24, 8, 0, 10, -45);
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(env, 0.04).texture;
+    scene.environmentIntensity = 0.6;
+    pmrem.dispose();
+  }
+
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), new THREE.MeshStandardMaterial({ color: '#cfcac0', roughness: 0.95 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+  // Backdrop "wall" (faces +Z, at z = 0) so wall objects read as mounted on a wall.
+  const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(200, 14), new THREE.MeshStandardMaterial({ color: '#f1ece3', roughness: 0.9 }));
+  backdrop.position.set(0, 7, -0.01);
+  backdrop.receiveShadow = true;
+  scene.add(backdrop);
+
+  // ---------------------------------------------------------------- label sprites (harness only)
+  function label(text) {
+    const cv = document.createElement('canvas');
+    cv.width = 512; cv.height = 96;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = 'rgba(47,43,40,0.85)';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 40px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, cv.width / 2, cv.height / 2);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+    sp.scale.set(4, 4 * 96 / 512, 1);
+    return sp;
+  }
+
+  // ---------------------------------------------------------------- checks
+  const TOL = 0.05;
+  function triangles(group) {
+    let n = 0;
+    group.traverse((o) => {
+      if (!o.isMesh) return;
+      const geo = o.geometry;
+      n += geo.index ? geo.index.count / 3 : geo.getAttribute('position').count / 3;
+    });
+    return n;
+  }
+  function check(group, entity, name) {
+    const b = new THREE.Box3().setFromObject(group);
+    const { width: w, height: h, depth: d } = entity;
+    const wall = entity.anchor === 'wall';
+    const zMin = wall ? -0.02 : -d / 2 - TOL, zMax = wall ? d + 0.02 : d / 2 + TOL;
+    const problems = [];
+    if (b.min.x < -w / 2 - TOL) problems.push(`min.x ${b.min.x.toFixed(3)} < ${-w / 2}`);
+    if (b.max.x > w / 2 + TOL) problems.push(`max.x ${b.max.x.toFixed(3)} > ${w / 2}`);
+    if (b.min.z < zMin) problems.push(`min.z ${b.min.z.toFixed(3)} < ${zMin.toFixed(3)}`);
+    if (b.max.z > zMax) problems.push(`max.z ${b.max.z.toFixed(3)} > ${zMax.toFixed(3)}`);
+    if (b.min.y < -TOL) problems.push(`min.y ${b.min.y.toFixed(3)} < 0`);
+    if (b.max.y > h + TOL) problems.push(`max.y ${b.max.y.toFixed(3)} > ${h}`);
+    if (!wall && Math.abs(b.min.y) > TOL) problems.push(`base min.y ${b.min.y.toFixed(3)} not ~0`);
+    if (b.max.y < h * 0.6) problems.push(`max.y ${b.max.y.toFixed(3)} < 60% of ${h}`);
+    let meshes = 0, bad = 0;
+    group.traverse((o) => {
+      if (!o.isMesh) return;
+      meshes++;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      if (!o.userData.pickable || !mats.every((m) => m.isMeshStandardMaterial || m.isMeshPhysicalMaterial)) bad++;
+    });
+    if (bad) problems.push(`${bad} meshes not pickable / not Standard|Physical material`);
+    const tris = triangles(group);
+    if (tris > 4000) problems.push(`${tris} triangles > 4000`);
+    const f = (v) => v.toArray().map((n) => n.toFixed(2)).join(',');
+    const msg = `${name}: box min=[${f(b.min)}] max=[${f(b.max)}] expect x±${w / 2} y0..${h} z${wall ? `0..${d}` : `±${d / 2}`} | ${meshes} meshes, ${tris} tris`;
+    console.log(problems.length ? `FAIL ${msg} :: ${problems.join('; ')}` : `PASS ${msg}`);
+    return { name, pass: problems.length === 0, problems, tris, meshes, box: { min: b.min.toArray(), max: b.max.toArray() } };
+  }
+
+  // ---------------------------------------------------------------- build + layout
+  function build(entity) {
+    const def = getDef(entity.type);
+    if (entity.type === 'door') return buildDoor(entity, def);
+    if (entity.type === 'window') return buildWindow(entity, def);
+    if (entity.anchor === 'wall') return buildWallFixture(entity, def);
+    return buildWarehouseFixture(entity, def);
+  }
+
+  const results = [];
+  const framed = new THREE.Box3();
+  const gap = 1.5;
+  const wallCases = cases.filter((c) => c.entity.anchor === 'wall');
+  const floorCases = cases.filter((c) => c.entity.anchor === 'floor');
+  const wallTotal = wallCases.reduce((n, c) => n + c.entity.width + gap, 0) - gap;
+  const floorTotal = floorCases.reduce((n, c) => n + c.entity.width + gap, 0) - gap;
+  let wx = -wallTotal / 2, fx = -floorTotal / 2;
+
+  for (const c of cases) {
+    const group = build(c.entity);
+    results.push(check(group, c.entity, c.label));
+    const e = c.entity;
+    if (e.anchor === 'wall') {
+      group.position.set(wx + e.width / 2, e.position.v, 0);
+      wx += e.width + gap;
+    } else {
+      group.position.set(fx + e.width / 2, 0, 26);
+      fx += e.width + gap;
+    }
+    scene.add(group);
+    const sp = label(c.label);
+    sp.position.set(group.position.x, group.position.y + e.height + 0.9, group.position.z + (e.anchor === 'wall' ? 0.5 : e.depth / 2));
+    scene.add(sp);
+    if (showBounds) {
+      const bb = e.anchor === 'wall'
+        ? new THREE.Box3(new THREE.Vector3(-e.width / 2, 0, 0), new THREE.Vector3(e.width / 2, e.height, e.depth))
+        : new THREE.Box3(new THREE.Vector3(-e.width / 2, 0, -e.depth / 2), new THREE.Vector3(e.width / 2, e.height, e.depth / 2));
+      bb.translate(group.position);
+      scene.add(new THREE.Box3Helper(bb, new THREE.Color('#b9613a')));
+    }
+    const inView = focus.length ? focus.includes(c.label) : (view === 'all' || view === c.group);
+    if (inView) framed.union(new THREE.Box3().setFromObject(group));
+  }
+
+  // Dispatch through fixtures/index.js and dispose: every geometry / material / texture must be released.
+  {
+    let disposed = 0, leaked = 0, dispatchErrors = 0;
+    const tracked = [];
+    for (const c of cases) {
+      let group;
+      try {
+        group = buildFixture(c.entity);
+        if (group.userData.entityId !== c.entity.id || group.userData.type !== c.entity.type) throw new Error('bad userData');
+      } catch (err) {
+        dispatchErrors++;
+        console.log(`FAIL buildFixture(${c.label}) via index.js: ${err.message}`);
+        continue;
+      }
+      group.traverse((o) => {
+        if (o.geometry) tracked.push(o.geometry);
+        for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+          tracked.push(m);
+          if (m.map) tracked.push(m.map);
+        }
+      });
+      disposeFixture(group);
+    }
+    for (const r of tracked) {
+      // Disposed geometries/materials/textures notify their listeners; check that we can dispose again harmlessly
+      // and that renderer memory stays flat after rendering + disposing a throwaway copy.
+      if (typeof r.dispose !== 'function') leaked++;
+    }
+    renderer.render(scene, camera); // upload the main scene first so the baseline already includes it
+    const before = { ...renderer.info.memory };
+    const throwaway = cases.map((c) => buildFixture(c.entity));
+    for (const g of throwaway) scene.add(g);
+    renderer.render(scene, camera);
+    for (const g of throwaway) { scene.remove(g); disposeFixture(g); }
+    renderer.render(scene, camera);
+    const after = { ...renderer.info.memory };
+    disposed = tracked.length;
+    const ok = !dispatchErrors && !leaked && after.geometries === before.geometries && after.textures === before.textures;
+    console.log(`${ok ? 'PASS' : 'FAIL'} dispose: ${disposed} resources tracked, renderer memory before=${JSON.stringify(before)} after=${JSON.stringify(after)}`);
+    results.push({ name: 'dispose', pass: ok, problems: ok ? [] : ['dispose/dispatch check failed'] });
+  }
+
+  // ---------------------------------------------------------------- camera framing
+  const center = framed.getCenter(new THREE.Vector3());
+  const size = framed.getSize(new THREE.Vector3());
+  if (view === 'all' && !focus.length) {
+    camera.position.set(0, 42, 80);
+    camera.lookAt(0, 2, 12);
+  } else {
+    const aspect = innerWidth / innerHeight;
+    const vFov = THREE.MathUtils.degToRad(camera.fov / 2);
+    const hFov = Math.atan(Math.tan(vFov) * aspect);
+    const dist = Math.max(size.y / 2 / Math.tan(vFov), size.x / 2 / Math.tan(hFov), size.z) * 1.15 + 2;
+    const a = THREE.MathUtils.degToRad(az);
+    const flat = Math.sqrt(Math.max(0.05, 1 - el * el));
+    camera.position.set(center.x + Math.sin(a) * dist * flat, center.y + dist * el, center.z + Math.cos(a) * dist * flat);
+    camera.lookAt(center);
+  }
+  renderer.render(scene, camera);
+
+  const pass = results.filter((r) => r.pass).length;
+  console.log(`SUMMARY ${pass}/${results.length} passed`);
+  window.__harnessDone = { pass, total: results.length, results };
+</script>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Colour wheel harness</title>
+  <link rel="stylesheet" href="../../../styles.css">
+  <style>
+    body { overflow: auto; padding: 24px; }
+    .harness { display: grid; gap: 24px; max-width: 720px; }
+    .card { padding: 20px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--hairline); box-shadow: var(--shadow-1); }
+    .card h2 { font-size: 15px; margin-bottom: 12px; }
+    .log { font: 12px/1.5 var(--mono); max-height: 160px; overflow: auto; background: #fff; border: 1px solid var(--hairline); border-radius: 10px; padding: 8px 10px; white-space: pre; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="harness">
+    <section class="card">
+      <h2>createColorWheel — 180 px</h2>
+      <div id="host-a"></div>
+      <div class="row">
+        <button id="set-sage" type="button" class="btn secondary">setColor(#7f9270, silent)</button>
+        <button id="set-blue-loud" type="button" class="btn secondary">setColor(#3f6d9c, fire)</button>
+        <button id="destroy" type="button" class="btn danger">destroy()</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Compact — 120 px</h2>
+      <div id="host-b"></div>
+    </section>
+    <section class="card">
+      <h2>Event log</h2>
+      <div id="log" class="log" aria-live="off"></div>
+    </section>
+  </div>
+  <script type="module">
+    import { createColorWheel, hsvToHex, hexToHsv } from '../../../src/ui/colorWheel.js';
+    const log = document.getElementById('log');
+    const events = [];
+    window.__wheelLog = events;
+    window.__wheelApi = { hsvToHex, hexToHsv };
+    function record(kind, hex) {
+      events.push({ kind, hex, t: performance.now() });
+      log.textContent = events.slice(-12).map((e) => `${e.kind.padEnd(7)} ${e.hex}`).join('\n');
+    }
+    const wheelA = createColorWheel({
+      size: 180, color: '#b9613a', label: 'Custom wall colour',
+      onInput: (hex) => record('input', hex),
+      onChange: (hex) => record('change', hex),
+    });
+    document.getElementById('host-a').appendChild(wheelA.element);
+    const wheelB = createColorWheel({ size: 120, color: '#3f6d9c', label: 'Compact colour' });
+    document.getElementById('host-b').appendChild(wheelB.element);
+    window.__wheel = wheelA;
+    document.getElementById('set-sage').addEventListener('click', () => wheelA.setColor('#7f9270'));
+    document.getElementById('set-blue-loud').addEventListener('click', () => wheelA.setColor('#3f6d9c', false));
+    document.getElementById('destroy').addEventListener('click', () => wheelA.destroy());
+  </script>
+</body>
+</html>
