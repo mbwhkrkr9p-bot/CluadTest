@@ -1,0 +1,367 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Room finishes harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f4efe7; overflow: hidden; font: 13px/1.3 system-ui, sans-serif; color: #2f2b28; }
+  canvas#c { display: block; }
+  #swatches { display: grid; grid-template-columns: repeat(8, 110px); gap: 14px; padding: 18px; }
+  #swatches figure { margin: 0; text-align: center; }
+  #swatches canvas { display: block; margin: 0 auto 4px; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
+  #swatches h2 { grid-column: 1 / -1; margin: 6px 0 0; font-size: 15px; }
+</style>
+<canvas id="c"></canvas>
+<div id="swatches" hidden></div>
+<script type="module">
+  // Harness for src/render/roomMesh.js + src/render/materials.js.
+  //   ?scene=store|lshape|warehouse      room polygon (default store)
+  //   ?floor=<preset>&wall=<preset>      finishes; ?color=<hex> floor custom colour, ?wallcolor=<hex>
+  //   ?override=w2:alpine                per-wall override(s), comma separated
+  //   ?fade=w2,w3                        force-fade walls; ?nocut=1 disables the camera cutaway
+  //   ?cam=x,y,z                         camera position; ?view=swatches renders the 2D swatch grid
+  //   ?checks=0                          skip the numeric checks
+  import * as THREE from '../../../vendor/three/three.module.js';
+  import { createRoomView } from '../../../src/render/roomMesh.js';
+  import { FLOOR_PRESETS, WALL_PRESETS, drawFloorSwatch, drawWallSwatch } from '../../../src/render/materials.js';
+  import { wallFrames } from '../../../src/core/geometry.js';
+
+  const params = new URLSearchParams(location.search);
+  const get = (k, d) => (params.has(k) ? params.get(k) : d);
+  window.__results = [];
+  window.__ready = false;
+
+  const results = window.__results;
+  function check(name, pass, detail = '') {
+    results.push({ name, pass, detail });
+    console.log(`${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`);
+  }
+  const near = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol;
+  const v3near = (v, x, y, z, tol = 1e-6) => near(v.x, x, tol) && near(v.y, y, tol) && near(v.z, z, tol);
+  const fmt = (v) => `(${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)})`;
+
+  // ---------------------------------------------------------------- workspaces (plain objects, no state.js)
+  function rect(w, d) { const hw = w / 2, hd = d / 2; return [{ x: -hw, z: -hd }, { x: hw, z: -hd }, { x: hw, z: hd }, { x: -hw, z: hd }]; }
+  function lShape(w, d, nw, nd) {
+    const hw = w / 2, hd = d / 2;
+    return [{ x: -hw, z: -hd }, { x: hw, z: -hd }, { x: hw, z: hd - nd }, { x: hw - nw, z: hd - nd }, { x: hw - nw, z: hd }, { x: -hw, z: hd }];
+  }
+  function door(id, wallId, u, width, role, style) {
+    return { id, type: 'door', anchor: 'wall', parent: wallId, position: { u, v: 0 }, rotation: 0, width, height: 7, depth: 0.3, meta: { style, role } };
+  }
+  function workspace({ type, polygon, wallHeight, floor, wall, entities }) {
+    return {
+      version: 1, id: 'ws_harness', type, name: 'Harness',
+      room: { polygon, wallIds: polygon.map((_, i) => `w${i}`), wallHeight, wallThickness: 0.5 },
+      finishes: { floor, wallDefault: wall, wallOverrides: {} },
+      customColors: [], entities, game: { arranged: false, reviewed: false, celebrated: [] },
+      meta: { createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+    };
+  }
+  const SCENES = {
+    store: () => workspace({
+      type: 'store', polygon: rect(40, 28), wallHeight: 9,
+      floor: { preset: 'light-oak', color: '#b08a5a' }, wall: { preset: 'warm-white', color: '#f1ece3' },
+      entities: [door('e_entrance', 'w2', 20, 6, 'entrance', 'full-glass'), door('e_exit', 'w1', 6, 4, 'exit', 'black-steel')],
+    }),
+    lshape: () => workspace({
+      type: 'store', polygon: lShape(44, 30, 14, 10), wallHeight: 10,
+      floor: { preset: 'slate-tile', color: '#b08a5a' }, wall: { preset: 'lodge-sage', color: '#f1ece3' },
+      entities: [door('e_entrance', 'w4', 8, 6, 'entrance', 'double-glass')],
+    }),
+    warehouse: () => workspace({
+      type: 'warehouse', polygon: rect(80, 50), wallHeight: 24,
+      floor: { preset: 'polished-concrete', color: '#b08a5a' }, wall: { preset: 'warm-white', color: '#f1ece3' },
+      entities: [door('e_entrance', 'w2', 40, 4, 'entrance', 'black-steel'), door('e_exit', 'w1', 10, 6, 'exit', 'black-steel')],
+    }),
+  };
+
+  const sceneName = get('scene', 'store');
+  const ws = (SCENES[sceneName] || SCENES.store)();
+  if (params.has('floor')) ws.finishes.floor = { preset: params.get('floor'), color: get('color', ws.finishes.floor.color) };
+  if (params.has('wall')) ws.finishes.wallDefault = { preset: params.get('wall'), color: get('wallcolor', ws.finishes.wallDefault.color) };
+  for (const pair of get('override', '').split(',').filter(Boolean)) {
+    const [wallId, preset, color] = pair.split(':');
+    ws.finishes.wallOverrides[wallId] = { preset, color: color ? `#${color}` : ws.finishes.wallDefault.color };
+  }
+
+  // ---------------------------------------------------------------- 2D swatch grid
+  if (get('view') === 'swatches') {
+    document.getElementById('c').hidden = true;
+    const grid = document.getElementById('swatches');
+    grid.hidden = false;
+    const section = (title, presets, draw, color) => {
+      const h = document.createElement('h2'); h.textContent = title; grid.appendChild(h);
+      for (const p of presets) {
+        const fig = document.createElement('figure');
+        const c = document.createElement('canvas'); c.width = 96; c.height = 96;
+        draw(c, p.id, color);
+        const cap = document.createElement('figcaption'); cap.textContent = p.name;
+        fig.append(c, cap); grid.appendChild(fig);
+      }
+      // one wide swatch proves any-size canvases are handled
+      const fig = document.createElement('figure');
+      const c = document.createElement('canvas'); c.width = 150; c.height = 56;
+      draw(c, presets[1].id, color);
+      const cap = document.createElement('figcaption'); cap.textContent = `${presets[1].name} 150×56`;
+      fig.append(c, cap); grid.appendChild(fig);
+    };
+    section('Floors', FLOOR_PRESETS, drawFloorSwatch, get('color', '#6f5aa8'));
+    section('Walls', WALL_PRESETS, drawWallSwatch, get('wallcolor', '#c7a27a'));
+    check('swatches drawn', true, `${FLOOR_PRESETS.length} floors + ${WALL_PRESETS.length} walls`);
+    window.__ready = true;
+  } else {
+    run3D();
+  }
+
+  // ---------------------------------------------------------------- 3D scene
+  function run3D() {
+    const canvas = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // r186 removed PCFSoftShadowMap (it warns)
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#f4efe7');
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 900);
+    const camScale = sceneName === 'warehouse' ? 2 : 1;
+    const cam = get('cam', '').split(',').map(Number);
+    if (cam.length === 3 && cam.every(Number.isFinite)) camera.position.set(cam[0], cam[1], cam[2]);
+    else camera.position.set(30 * camScale, 26 * camScale, 44 * camScale);
+    camera.lookAt(0, 0, 0);
+    scene.fog = new THREE.Fog('#f4efe7', 140 * camScale, 420 * camScale);
+
+    const hemi = new THREE.HemisphereLight('#fff6e8', '#b9ae9c', 1.1);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight('#fff1dc', 2.0);
+    sun.position.set(28, 48, 34).multiplyScalar(camScale);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const extent = 36 * camScale;
+    Object.assign(sun.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, near: 1, far: 400 });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.bias = -0.0003;
+    sun.shadow.normalBias = 0.02;
+    scene.add(sun);
+    scene.environment = makeEnvironment(renderer);
+    scene.environmentIntensity = 0.55;
+
+    let renders = 0;
+    const requestRender = () => { renders++; };
+    const sceneCtx = { THREE, scene, requestRender };
+
+    if (get('checks', '1') !== '0') runChecks(sceneCtx);
+
+    // visual view
+    const view = createRoomView(sceneCtx);
+    view.build(ws);
+    const forced = get('fade', '').split(',').filter(Boolean);
+    if (get('nocut') !== '1') {
+      for (const [wallId, wall] of Object.entries(view.walls)) {
+        const f = wall.frame;
+        const side = (camera.position.x - f.start.x) * f.normal.x + (camera.position.z - f.start.z) * f.normal.z;
+        if (side < -0.05) view.setWallFade(wallId, true, true);
+      }
+    }
+    for (const wallId of forced) view.setWallFade(wallId, true, true);
+    view.update(1);
+    renderer.render(scene, camera);
+    check('render requested by view', renders > 0, `${renders} requests`);
+    window.__view = view;
+    window.__ready = true;
+  }
+
+  /** Small procedural environment: soft warm sky dome + bright top light + warm ground. */
+  function makeEnvironment(renderer) {
+    const env = new THREE.Scene();
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(60, 24, 16), new THREE.MeshBasicMaterial({ color: '#e9e3d9', side: THREE.BackSide }));
+    const light = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+    light.position.y = 30; light.rotation.x = Math.PI / 2;
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshBasicMaterial({ color: '#b6ab9a' }));
+    ground.position.y = -20; ground.rotation.x = -Math.PI / 2;
+    env.add(dome, light, ground);
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const texture = pmrem.fromScene(env, 0.04).texture;
+    pmrem.dispose();
+    env.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    return texture;
+  }
+
+  // ---------------------------------------------------------------- numeric checks (throwaway view)
+  function runChecks(sceneCtx) {
+    const { scene } = sceneCtx;
+    const view = createRoomView(sceneCtx);
+    const storeWs = SCENES.store();
+    view.build(storeWs);
+    view.group.updateMatrixWorld(true);
+
+    // floor orientation: polygon vertex (20, 14) -> world (20, 0, 14); UV = (x, z); normal up
+    const pos = view.floorMesh.geometry.getAttribute('position');
+    const uv = view.floorMesh.geometry.getAttribute('uv');
+    const nrm = view.floorMesh.geometry.getAttribute('normal');
+    let found = -1;
+    const wp = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      wp.fromBufferAttribute(pos, i);
+      view.floorMesh.localToWorld(wp);
+      if (v3near(wp, 20, 0, 14)) { found = i; break; }
+    }
+    check('floor vertex (20,14) lands at world (20,0,14)', found >= 0);
+    check('floor UVs are in feet (u=x, v=z)', found >= 0 && near(uv.getX(found), 20) && near(uv.getY(found), 14), found >= 0 ? `uv=(${uv.getX(found)}, ${uv.getY(found)})` : 'vertex missing');
+    check('floor normal points up', near(nrm.getX(0), 0) && near(nrm.getY(0), 1) && near(nrm.getZ(0), 0));
+    check('floor userData', view.floorMesh.userData.kind === 'floor' && view.floorMesh.userData.pickable === true && view.floorMesh.receiveShadow);
+    const grid = view.group.getObjectByName('floor-grid');
+    check('grid overlay not pickable, at y=0.005', !!grid && grid.userData.pickable === false && near(grid.position.y, 0.005));
+    // floor winding: front face visible from above (triangle winding CCW seen from +Y)
+    const idx = view.floorMesh.geometry.index;
+    const a = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(0)), b = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(1)), c = new THREE.Vector3().fromBufferAttribute(pos, idx.getX(2));
+    const faceN = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+    check('floor triangle winding faces +Y', faceN.y > 0.999, `first face normal ${fmt(faceN)}`);
+
+    // walls: attach group axes, face normal/center, ids
+    const frames = wallFrames(storeWs.room.polygon);
+    const ids = storeWs.room.wallIds;
+    check('walls keyed by wall id', ids.every((id) => view.walls[id]) && Object.keys(view.walls).length === ids.length);
+    const origin = new THREE.Vector3(), ex = new THREE.Vector3(), ez = new THREE.Vector3(), fn = new THREE.Vector3();
+    let axesOk = true, faceOk = true, detail = '';
+    ids.forEach((id, i) => {
+      const w = view.walls[id], f = frames[i];
+      w.attachGroup.localToWorld(origin.set(0, 0, 0));
+      w.attachGroup.localToWorld(ex.set(1, 0, 0)).sub(origin);
+      w.attachGroup.localToWorld(ez.set(0, 0, 1)).sub(origin);
+      const ok = v3near(origin, f.start.x, 0, f.start.z) && v3near(ex, f.dir.x, 0, f.dir.z) && v3near(ez, f.normal.x, 0, f.normal.z);
+      if (!ok) axesOk = false;
+      if (i === 2) detail = `w2 origin ${fmt(origin)} +X ${fmt(ex)} +Z ${fmt(ez)} expect start (${f.start.x},0,${f.start.z}) dir (${f.dir.x},${f.dir.z}) normal (${f.normal.x},${f.normal.z})`;
+      w.faceMesh.getWorldDirection(fn);
+      const center = w.faceMesh.getWorldPosition(new THREE.Vector3());
+      const p = w.faceMesh.geometry.parameters;
+      if (!(v3near(fn, f.normal.x, 0, f.normal.z) && v3near(center, f.midpoint.x, 4.5, f.midpoint.z) && near(p.width, f.length) && near(p.height, 9))) faceOk = false;
+      if (!(w.faceMesh.userData.kind === 'wall' && w.faceMesh.userData.wallId === id && w.faceMesh.userData.pickable === true && w.faceMesh.receiveShadow)) faceOk = false;
+    });
+    check('attachGroup origin=start, local +X=dir, local +Z=normal (all walls)', axesOk, detail);
+    check('face planes: inward normal, centred on the edge, length×height, userData', faceOk);
+    const u = new THREE.Vector3(5, 3, 0);
+    view.walls.w2.attachGroup.localToWorld(u);
+    const f2 = frames[2];
+    check('wall-local (u=5,v=3) on w2 maps to start + dir*5 at y=3', v3near(u, f2.start.x + f2.dir.x * 5, 3, f2.start.z + f2.dir.z * 5), fmt(u));
+
+    // fade: dummy child (solid box + glass) under w2
+    const dummy = new THREE.Group();
+    const solid = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: '#a57c52' }));
+    solid.userData.pickable = true; solid.castShadow = true;
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.1), new THREE.MeshPhysicalMaterial({ color: '#bfe0f2', transparent: true, opacity: 0.35, depthWrite: false }));
+    glass.userData.pickable = true;
+    const guide = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshBasicMaterial({ color: '#e0a33b' }));
+    guide.userData.pickable = false; // must stay false after a fade round trip
+    dummy.add(solid, glass, guide);
+    dummy.position.set(6, 1, 0);
+    view.walls.w2.attachGroup.add(dummy);
+
+    const anim = view.setWallFade('w2', true, true);
+    const w2 = view.walls.w2;
+    const shell = w2.group.getObjectByName('wall-shell-w2');
+    check('immediate fade returns false (no tween)', anim === false);
+    check('faded: face + attach descendants not pickable', w2.faceMesh.userData.pickable === false && solid.userData.pickable === false && glass.userData.pickable === false && guide.userData.pickable === false);
+    check('faded: opacities scale from baseline (1 -> 0.08, glass 0.35 -> 0.028)',
+      near(w2.faceMesh.material.opacity, 0.08) && near(shell.material.opacity, 0.08) && near(solid.material.opacity, 0.08) && near(glass.material.opacity, 0.028),
+      `face ${w2.faceMesh.material.opacity} shell ${shell.material.opacity} solid ${solid.material.opacity} glass ${glass.material.opacity.toFixed(4)}`);
+    check('faded: transparent + no depthWrite, no shadow casting', w2.faceMesh.material.transparent && !w2.faceMesh.material.depthWrite && !shell.castShadow && !solid.castShadow);
+    check('other walls untouched by fade', view.walls.w0.faceMesh.material.opacity === 1 && view.walls.w0.faceMesh.userData.pickable === true && !view.walls.w0.faceMesh.material.transparent);
+    // late arrival under a faded wall gets the faded look on the next update
+    const late = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: '#556270' }));
+    late.userData.pickable = true;
+    dummy.add(late);
+    view.update(0.016);
+    check('late child under faded wall is faded + unpickable', near(late.material.opacity, 0.08) && late.userData.pickable === false);
+
+    // animated unfade
+    const started = view.setWallFade('w2', false);
+    check('animated unfade starts a tween', started === true);
+    check('unfade restores pickable immediately', w2.faceMesh.userData.pickable === true && solid.userData.pickable === true && guide.userData.pickable === false);
+    let steps = 0, mid = null;
+    while (view.update(0.03) && steps < 50) { steps++; if (steps === 2) mid = w2.faceMesh.material.opacity; }
+    check('tween runs ~180ms (6 × 30 ms steps) with intermediate opacity', steps >= 4 && steps <= 8 && mid > 0.08 && mid < 1, `${steps} steps, mid opacity ${mid && mid.toFixed(3)}`);
+    check('solid again: opacity/transparent/depthWrite restored, glass back to 0.35',
+      w2.faceMesh.material.opacity === 1 && w2.faceMesh.material.transparent === false && w2.faceMesh.material.depthWrite === true
+      && near(glass.material.opacity, 0.35) && glass.material.transparent === true && glass.material.depthWrite === false && solid.castShadow && shell.castShadow && late.material.opacity === 1);
+    check('update() idle returns false', view.update(0.016) === false);
+
+    // highlights do not leak
+    view.setWallHighlight('w1', 'selected');
+    view.setFloorHighlight('target-valid');
+    check('wall highlight only tints that wall', view.walls.w1.faceMesh.material.emissiveIntensity > 0 && view.walls.w0.faceMesh.material.emissiveIntensity === 0 && view.walls.w2.faceMesh.material.emissiveIntensity === 0);
+    check('floor highlight tints floor', view.floorMesh.material.emissiveIntensity > 0 && view.floorMesh.material.emissive.getHex() === 0x7f9270);
+    let threw = false;
+    try { view.setWallHighlight('w1', 'bogus'); } catch (e) { threw = true; }
+    check('unknown highlight mode throws', threw);
+    view.setFloorHighlight('none');
+
+    // setWallHeight preserves attach children and fade/highlight state
+    view.setWallFade('w2', true, true);
+    const oldFace = w2.faceMesh;
+    view.setWallHeight(12);
+    view.group.updateMatrixWorld(true);
+    const nw2 = view.walls.w2;
+    check('setWallHeight rebuilds walls (new face, height 12)', nw2.faceMesh !== oldFace && near(nw2.faceMesh.geometry.parameters.height, 12) && Object.keys(view.walls).length === 4);
+    check('setWallHeight keeps attach children in place', dummy.parent === nw2.attachGroup && v3near(dummy.position, 6, 1, 0));
+    check('setWallHeight keeps fade + highlight state', nw2.faceMesh.userData.pickable === false && near(nw2.faceMesh.material.opacity, 0.08) && view.walls.w1.faceMesh.material.emissiveIntensity > 0);
+    view.setWallFade('w2', false, true);
+    view.setWallHighlight('w1', 'none');
+
+    // exterior context is decoration only
+    const ext = view.group.getObjectByName('room-exterior');
+    let pickableLeak = false, meshes = 0;
+    ext.traverse((o) => { if (o.userData.pickable === true) pickableLeak = true; if (o.isMesh) meshes++; });
+    const planters = ext.children.filter((o) => o.name.startsWith('exterior-planter')).length;
+    check('exterior: nothing pickable', ext.userData.pickable === false && !pickableLeak, `${meshes} meshes`);
+    check('exterior: apron, foundation, path, 3-4 planters', !!ext.getObjectByName('exterior-apron') && !!ext.getObjectByName('exterior-foundation') && !!ext.getObjectByName('exterior-path') && planters >= 3 && planters <= 4, `${planters} planters`);
+    check('getWallFrames() carries ids', view.getWallFrames().map((f) => f.id).join() === ids.join());
+
+    // no entrance -> no path
+    const noDoor = SCENES.store();
+    noDoor.entities = [];
+    view.build(noDoor);
+    check('no entrance door -> no path, planters still placed', !view.group.getObjectByName('exterior-path') && view.group.getObjectByName('room-exterior').children.filter((o) => o.name.startsWith('exterior-planter')).length >= 3);
+    check('build() keeps attach children for same wall ids', dummy.parent === view.walls.w2.attachGroup);
+
+    // finishes cycle
+    const t0 = performance.now();
+    let cycleOk = true;
+    for (const p of FLOOR_PRESETS) {
+      const before = view.floorMesh.material;
+      noDoor.finishes.floor = { preset: p.id, color: '#7a5cbf' };
+      view.applyFinishes(noDoor);
+      const m = view.floorMesh.material;
+      if (m === before || !m.map || !near(m.map.repeat.x, m.map.repeat.y) || m.map.repeat.x <= 0) cycleOk = false;
+      if (m.map.colorSpace !== THREE.SRGBColorSpace || m.map.wrapS !== THREE.RepeatWrapping || m.map.anisotropy !== 4) cycleOk = false;
+    }
+    for (const p of WALL_PRESETS) {
+      const before = view.walls.w0.faceMesh.material;
+      noDoor.finishes.wallDefault = { preset: p.id, color: '#c7a27a' };
+      view.applyFinishes(noDoor);
+      const m = view.walls.w0.faceMesh.material;
+      if (m === before || !m.map) cycleOk = false;
+    }
+    const ms = performance.now() - t0;
+    check('applyFinishes cycles through every floor + wall preset', cycleOk, `${(ms).toFixed(0)} ms total`);
+    const same = view.walls.w0.faceMesh.material;
+    view.applyFinishes(noDoor);
+    check('applyFinishes with unchanged finishes keeps materials', view.walls.w0.faceMesh.material === same);
+    noDoor.finishes.wallOverrides = { w1: { preset: 'alpine', color: '#000000' } };
+    view.applyFinishes(noDoor);
+    check('per-wall override only swaps that wall', view.walls.w1.faceMesh.material !== same && view.walls.w0.faceMesh.material === same && near(view.walls.w1.faceMesh.material.map.repeat.x, 28 / 4));
+    check('wall map repeats length/tile × height/tile', near(view.walls.w0.faceMesh.material.map.repeat.x, 40 / 4) && near(view.walls.w0.faceMesh.material.map.repeat.y, 9 / 4));
+
+    // L-shape + warehouse build without errors, reflex corner shell stays outside the room
+    view.build(SCENES.lshape());
+    check('L-shaped room builds 6 walls', Object.keys(view.walls).length === 6);
+    view.build(SCENES.warehouse());
+    check('warehouse builds', Object.keys(view.walls).length === 4 && near(view.walls.w0.faceMesh.geometry.parameters.height, 24));
+
+    view.dispose();
+    check('dispose removes the group from the scene', !scene.children.includes(view.group) && Object.keys(view.walls).length === 0 && view.floorMesh === null);
+  }
+</script>
