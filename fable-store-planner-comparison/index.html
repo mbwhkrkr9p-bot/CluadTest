@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f4efe7">
+  <meta name="description" content="Plan a retail store or warehouse in 3D. Runs entirely in your browser.">
+  <title>3D Store Studio</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 3D stage. The canvas fills the app; the label layer floats above it. -->
+    <canvas id="viewport" aria-label="3D view of your space. Drag to orbit, scroll or pinch to zoom, tap to select."></canvas>
+    <div id="labels" aria-hidden="true"></div>
+
+    <!-- ================================================================ top bar -->
+    <header id="topbar" class="topbar">
+      <div class="topbar__group topbar__brand">
+        <span id="product-name" class="product-name">
+          <svg class="product-name__mark" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="22" height="22">
+            <path d="M12 2.5 21 7.5v9L12 21.5 3 16.5v-9z" fill="#e0a33b"/>
+            <path d="M12 2.5v9.2L3 7.5z" fill="#f2c56f"/>
+            <path d="M12 11.7V21.5L3 16.5v-9z" fill="#b9613a"/>
+            <path d="M12 11.7 21 7.5v9l-9 5z" fill="#6b4a2f"/>
+          </svg>
+          <span class="product-name__text">3D Store Studio</span>
+        </span>
+        <span class="topbar__divider" aria-hidden="true"></span>
+        <button id="workspace-name" type="button" class="workspace-name" title="Rename this space">Lodge Outfitters</button>
+        <span id="workspace-type" class="badge" data-type="store">Store</span>
+        <span id="save-status" class="save-status" aria-live="polite" data-status="saved">Saved</span>
+      </div>
+
+      <div class="topbar__group topbar__tools">
+        <div class="stepper" role="group" aria-label="Wall height">
+          <label class="stepper__label" for="wall-height">Wall height</label>
+          <button id="wall-height-dec" type="button" class="stepper__btn" aria-label="Decrease wall height by half a foot">−</button>
+          <input id="wall-height" class="stepper__input" type="number" min="8" max="30" step="0.5" value="9" inputmode="decimal" aria-describedby="wall-height-unit">
+          <button id="wall-height-inc" type="button" class="stepper__btn" aria-label="Increase wall height by half a foot">+</button>
+          <span id="wall-height-unit" class="stepper__suffix">ft</span>
+        </div>
+        <span class="topbar__divider" aria-hidden="true"></span>
+        <div class="topbar__actions">
+          <button id="btn-finishes" type="button" class="btn secondary" aria-pressed="false">Design Finishes</button>
+          <button id="btn-floorplan" type="button" class="btn secondary">Edit Floor Plan</button>
+          <button id="btn-new-space" type="button" class="btn secondary">New Space</button>
+          <button id="btn-home" type="button" class="btn secondary">Home View</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ================================================================ stage overlays -->
+    <div class="stage">
+      <!-- Build Kit (left) -->
+      <aside id="build-kit" class="panel panel--left" aria-labelledby="kit-title">
+        <div class="panel__header">
+          <h2 id="kit-title" class="panel__title">Build Kit</h2>
+          <button id="kit-toggle" type="button" class="icon-btn panel__toggle" aria-label="Collapse or expand the Build Kit" aria-expanded="true" aria-controls="kit-body">
+            <span class="panel__toggle-text" aria-hidden="true">Build Kit</span>
+            <svg class="panel__toggle-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="18" height="18"><path d="m15 18-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div id="kit-body" class="panel__body">
+          <div class="search">
+            <svg class="search__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20.5 20.5-4.3-4.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <input id="kit-search" class="search__input" type="search" placeholder="Search fixtures" aria-label="Search fixtures" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+          </div>
+          <div id="kit-tabs" class="tabs" role="tablist" aria-label="Fixture categories"></div>
+          <div class="panel__scroll">
+            <div id="kit-cards" class="kit-cards" role="list" aria-label="Fixtures"></div>
+            <p id="kit-empty" class="empty" hidden>No fixtures match. Try another word or category.</p>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Design Finishes (left, replaces the Build Kit while open) -->
+      <aside id="finish-panel" class="panel panel--left" aria-labelledby="finish-title" hidden>
+        <div class="panel__header">
+          <h2 id="finish-title" class="panel__title">Design Finishes</h2>
+        </div>
+        <div class="panel__body">
+          <div id="finish-tabs" class="tabs" role="tablist" aria-label="Finish categories">
+            <button type="button" class="tab" role="tab" aria-selected="true">Floors</button>
+            <button type="button" class="tab" role="tab" aria-selected="false">Walls</button>
+            <button type="button" class="tab" role="tab" aria-selected="false">Windows</button>
+            <button type="button" class="tab" role="tab" aria-selected="false">Doors</button>
+          </div>
+          <div id="finish-body" class="panel__scroll finish__body"></div>
+        </div>
+        <div class="panel__footer">
+          <button id="finish-done" type="button" class="btn primary">Done</button>
+        </div>
+      </aside>
+
+      <!-- Details (right) -->
+      <aside id="details" class="panel panel--right is-hidden" aria-labelledby="details-title" aria-hidden="true">
+        <div class="panel__header details__header">
+          <button id="details-back" type="button" class="btn ghost small details__back" hidden>
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16"><path d="m15 18-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Back
+          </button>
+          <div class="details__heading">
+            <h2 id="details-title" class="panel__title">Nothing selected</h2>
+            <p id="details-subtitle" class="panel__subtitle"></p>
+          </div>
+          <button id="details-close" type="button" class="icon-btn panel__toggle" aria-label="Collapse or expand the details" aria-expanded="true" aria-controls="details-body">
+            <svg class="panel__toggle-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="18" height="18"><path d="m9 18 6-6-6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div id="details-body" class="panel__scroll details__body"></div>
+        <div id="details-actions" class="panel__footer details__actions">
+          <button id="btn-duplicate" type="button" class="btn secondary">Duplicate</button>
+          <button id="btn-remove" type="button" class="btn danger">Remove</button>
+        </div>
+      </aside>
+
+      <!-- Game HUD (top centre) -->
+      <section id="hud" class="hud" aria-label="Design progress">
+        <div class="hud__top">
+          <p id="hud-objective" class="hud__objective">Place your first fixture</p>
+          <div id="hud-progress" class="hud__progress" aria-label="Design steps">
+            <span class="hud-dot is-current" aria-label="1. Step one">1</span>
+            <span class="hud-dot" aria-label="2. Step two">2</span>
+            <span class="hud-dot" aria-label="3. Step three">3</span>
+            <span class="hud-dot" aria-label="4. Step four">4</span>
+            <span class="hud-dot" aria-label="5. Step five">5</span>
+          </div>
+        </div>
+        <div class="hud__row">
+          <span id="hud-count" class="hud__stat">0 fixtures</span>
+          <span class="hud__sep" aria-hidden="true"></span>
+          <span id="hud-score" class="hud__stat">0%</span>
+          <span id="hud-collision" class="hud__badge" role="status" hidden>No overlaps</span>
+          <span class="hud__spacer"></span>
+          <button id="hud-brief-toggle" type="button" class="btn link small" aria-expanded="false" aria-controls="hud-brief">Design brief</button>
+          <button id="btn-review" type="button" class="btn primary small" aria-pressed="false" hidden>Review</button>
+        </div>
+        <ol id="hud-brief" class="hud__brief" hidden></ol>
+      </section>
+
+      <!-- Undo / redo (bottom left) -->
+      <div id="history" class="history" role="group" aria-label="History">
+        <button id="btn-undo" type="button" class="icon-btn" aria-label="Undo" title="Nothing to undo" disabled>
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="20" height="20"><path d="M9 14 4 9l5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="btn-redo" type="button" class="icon-btn" aria-label="Redo" title="Nothing to redo" disabled>
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="20" height="20"><path d="m15 14 5-5-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Toasts (bottom centre) -->
+    <div id="toasts" class="toasts" aria-live="polite" aria-relevant="additions"></div>
+
+    <!-- Floating miniature while dragging a card from the Build Kit -->
+    <div id="drag-ghost" class="drag-ghost" aria-hidden="true" hidden>
+      <canvas id="drag-ghost-canvas" class="drag-ghost__canvas" width="64" height="64"></canvas>
+      <span id="drag-ghost-label" class="drag-ghost__label">Drop to place</span>
+    </div>
+
+    <!-- Portrait notice -->
+    <div id="portrait-notice" class="portrait-notice" role="dialog" aria-modal="true" aria-labelledby="portrait-title" aria-describedby="portrait-text" aria-hidden="true">
+      <div class="portrait-notice__card">
+        <div class="rotate-glyph" aria-hidden="true">
+          <div class="rotate-glyph__arc"></div>
+          <div class="rotate-glyph__device"></div>
+        </div>
+        <h2 id="portrait-title" class="portrait-notice__title">Rotate to landscape</h2>
+        <p id="portrait-text" class="portrait-notice__text">3D Store Studio works best on a wide screen, with the Build Kit and Details panels beside the room. Turn your tablet sideways to continue.</p>
+        <button id="portrait-continue" type="button" class="btn secondary">Continue anyway</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ floor plan dialog -->
+  <dialog id="floorplan-dialog" class="dialog dialog--wide" aria-labelledby="fp-title">
+    <form method="dialog" class="dialog__form" novalidate>
+      <div class="dialog__head">
+        <h2 id="fp-title" class="dialog__title">Edit Floor Plan</h2>
+        <p class="dialog__lead">Change the outline, size, wall height and door locations. Fixtures stay where they are.</p>
+      </div>
+
+      <div class="fp-grid">
+        <div class="fp-fields">
+          <label class="field field--stacked">
+            <span class="field__label">Space name</span>
+            <input id="fp-name" class="field__input" type="text" maxlength="48" autocomplete="off" placeholder="Lodge Outfitters">
+          </label>
+
+          <fieldset class="fieldset">
+            <legend class="fieldset__legend">Outline</legend>
+            <label class="field">
+              <span class="field__label">Shape</span>
+              <select id="fp-shape" class="field__input">
+                <option value="rectangle">Rectangle</option>
+                <option value="l-shape">L-shape</option>
+              </select>
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span class="field__label">Width</span>
+                <input id="fp-width" class="field__input" type="number" min="8" max="400" step="0.5" value="40" inputmode="decimal">
+                <span class="field__unit">ft</span>
+              </label>
+              <label class="field">
+                <span class="field__label">Depth</span>
+                <input id="fp-depth" class="field__input" type="number" min="8" max="400" step="0.5" value="28" inputmode="decimal">
+                <span class="field__unit">ft</span>
+              </label>
+            </div>
+            <label class="field">
+              <span class="field__label">Wall height</span>
+              <input id="fp-wall-height" class="field__input" type="number" min="8" max="30" step="0.5" value="9" inputmode="decimal">
+              <span class="field__unit">ft</span>
+            </label>
+            <div id="fp-notch-fields" class="fp-notch" hidden>
+              <div class="field-row">
+                <label class="field">
+                  <span class="field__label">Notch width</span>
+                  <input id="fp-notch-width" class="field__input" type="number" min="2" max="396" step="0.5" value="12" inputmode="decimal">
+                  <span class="field__unit">ft</span>
+                </label>
+                <label class="field">
+                  <span class="field__label">Notch depth</span>
+                  <input id="fp-notch-depth" class="field__input" type="number" min="2" max="396" step="0.5" value="8" inputmode="decimal">
+                  <span class="field__unit">ft</span>
+                </label>
+              </div>
+              <label class="field">
+                <span class="field__label">Notch corner</span>
+                <select id="fp-notch-corner" class="field__input">
+                  <option value="front-right">Front right</option>
+                  <option value="front-left">Front left</option>
+                  <option value="back-right">Back right</option>
+                  <option value="back-left">Back left</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="fieldset">
+            <legend class="fieldset__legend">Entrance door</legend>
+            <label class="field">
+              <span class="field__label">Wall</span>
+              <select id="fp-entrance-wall" class="field__input" aria-label="Entrance door wall"></select>
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span class="field__label">Offset</span>
+                <input id="fp-entrance-u" class="field__input" type="number" min="0" step="0.5" value="20" inputmode="decimal" aria-label="Entrance door offset along the wall">
+                <span class="field__unit">ft</span>
+              </label>
+              <label class="field">
+                <span class="field__label">Width</span>
+                <input id="fp-entrance-width" class="field__input" type="number" min="2" max="20" step="0.5" value="6" inputmode="decimal" aria-label="Entrance door width">
+                <span class="field__unit">ft</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="fieldset">
+            <legend class="fieldset__legend">Exit door</legend>
+            <label class="field">
+              <span class="field__label">Wall</span>
+              <select id="fp-exit-wall" class="field__input" aria-label="Exit door wall"></select>
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span class="field__label">Offset</span>
+                <input id="fp-exit-u" class="field__input" type="number" min="0" step="0.5" value="6" inputmode="decimal" aria-label="Exit door offset along the wall">
+                <span class="field__unit">ft</span>
+              </label>
+              <label class="field">
+                <span class="field__label">Width</span>
+                <input id="fp-exit-width" class="field__input" type="number" min="2" max="20" step="0.5" value="4" inputmode="decimal" aria-label="Exit door width">
+                <span class="field__unit">ft</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+
+        <div class="fp-preview">
+          <canvas id="fp-preview" width="360" height="240" role="img" aria-label="Live preview of the floor plan outline with door positions"></canvas>
+          <p class="fp-preview__legend">
+            <span class="legend-key legend-key--entrance">Entrance</span>
+            <span class="legend-key legend-key--exit">Exit</span>
+            <span class="legend-key legend-key--grid">5 ft grid</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="dialog__actions">
+        <button id="fp-cancel" type="button" class="btn secondary">Cancel</button>
+        <button id="fp-apply" type="submit" class="btn primary">Apply plan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ================================================================ new space dialog -->
+  <dialog id="newspace-dialog" class="dialog" aria-labelledby="ns-title">
+    <form method="dialog" class="dialog__form" novalidate>
+      <div class="dialog__head">
+        <h2 id="ns-title" class="dialog__title">New Space</h2>
+        <p class="dialog__lead">Start from a fresh template.</p>
+      </div>
+
+      <div class="choice-grid">
+        <button id="ns-store" type="button" class="choice is-selected" aria-pressed="true">
+          <svg class="choice__glyph" aria-hidden="true" focusable="false" viewBox="0 0 48 48" width="44" height="44">
+            <path d="M8 18 11 8h26l3 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+            <path d="M6 18h36v3a5 5 0 0 1-10 0 5 5 0 0 1-10 0 5 5 0 0 1-10 0 3 3 0 0 1-6 0z" fill="#e0a33b" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+            <path d="M10 25v15h28V25" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+            <path d="M20 40v-9h8v9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+            <path d="M30 29h4v5h-4z" fill="none" stroke="currentColor" stroke-width="2"/>
+          </svg>
+          <span class="choice__title">Store</span>
+          <span class="choice__desc">40 × 28 ft retail floor with 9 ft walls. Shelving, garment racks, displays and a service counter.</span>
+        </button>
+        <button id="ns-warehouse" type="button" class="choice" aria-pressed="false">
+          <svg class="choice__glyph" aria-hidden="true" focusable="false" viewBox="0 0 48 48" width="44" height="44">
+            <path d="M6 40V17l18-9 18 9v23" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+            <path d="M4 40h40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M14 40V24h20v16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+            <path d="M14 30h20M14 35h20" fill="none" stroke="#e0a33b" stroke-width="2.4"/>
+            <path d="M19 24v16M24 24v16M29 24v16" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          </svg>
+          <span class="choice__title">Warehouse</span>
+          <span class="choice__desc">80 × 50 ft floor with 24 ft walls. Pallet racking, packing stations, forklift zones and location markers.</span>
+        </button>
+      </div>
+
+      <label class="field field--stacked">
+        <span class="field__label">Space name</span>
+        <input id="ns-name" class="field__input" type="text" maxlength="48" autocomplete="off" value="Lodge Outfitters">
+      </label>
+
+      <p class="dialog__warning" role="note">
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="18" height="18"><path d="M12 3 2.5 20h19z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 9.5v4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17" r="1.1" fill="currentColor"/></svg>
+        This replaces your current space (your current layout will be lost).
+      </p>
+
+      <div class="dialog__actions">
+        <button id="ns-cancel" type="button" class="btn secondary">Cancel</button>
+        <button id="ns-create" type="button" class="btn primary">Create space</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Screen-reader announcements -->
+  <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

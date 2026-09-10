@@ -247,7 +247,7 @@ async function main() {
     await S(() => window.__studio.select({ kind: 'none' }));
     const ws0 = await state();
     const table = ws0.entities.find((e) => e.type === 'display-table');
-    const p = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, 1.2, e.position.z); }, table.id);
+    const p = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, e.height * 0.92, e.position.z); }, table.id);
     const far = await S(() => window.__studio.project(-40, 0, 2));
     await page.mouse.move(p.x, p.y);
     await page.mouse.down();
@@ -590,7 +590,7 @@ async function main() {
     assert(!(await S(() => window.__studio.studio.isReviewing())), 'cancelled by wheel');
     // let a reduced-motion-fast review complete via the API
     await S(() => { window.__studio.rig.reducedMotion = true; window.__studio.studio.startReview(); });
-    await page.waitForTimeout(3500);
+    await page.waitForTimeout(7000);
     const ws = await state();
     assert(ws.game.reviewed === true, 'review recorded');
     const info = await S(() => window.__studio.game());
@@ -621,7 +621,7 @@ async function main() {
     assert(walls === 6, 'six wall meshes');
     // a floor fixture dragged toward the notch is clamped to the real outline
     const bin = ws.entities.find((e) => e.type === 'dump-bin');
-    const start = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, 1, e.position.z); }, bin.id);
+    const start = await S((id) => { const e = window.__studio.getState().entities.find((x) => x.id === id); return window.__studio.project(e.position.x, e.height * 0.9, e.position.z); }, bin.id);
     await S(() => window.__studio.select({ kind: 'none' }));
     const intoNotch = await S(() => window.__studio.project(16, 0, 11));
     await page.mouse.move(start.x, start.y);
@@ -636,7 +636,10 @@ async function main() {
       return g.collisions().outOfBounds.has(e.id);
     }, moved);
     assert(!inside, 'never left the polygon');
-    const notchCorner = moved.position.x + moved.width / 2 > 8 + 1e-6 && moved.position.z + moved.depth / 2 > 6 + 1e-6;
+    const notchCorner = await S((e) => {
+      const r = (e.rotation || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+      return [[-1, 1], [1, 1], [1, -1], [-1, -1]].some(([sx, sz]) => { const lx = sx * e.width / 2, lz = sz * e.depth / 2; const x = e.position.x + lx * c + lz * s, z = e.position.z - lx * s + lz * c; return x > 8 + 1e-6 && z > 6 + 1e-6; });
+    }, moved);
     assert(!notchCorner, `not inside the notch: ${JSON.stringify(moved.position)}`);
     await page.keyboard.press('Control+z');
     await page.keyboard.press('Control+z');
@@ -748,7 +751,7 @@ async function main() {
     await p3.waitForTimeout(300);
     const e = await p3.evaluate(() => window.__studio.place('display-table', 0, 0));
     await p3.evaluate(() => window.__studio.select({ kind: 'none' }));
-    const from = await p3.evaluate(() => window.__studio.project(0, 1.2, 0));
+    const from = await p3.evaluate(() => window.__studio.project(0, 2.3, 0));
     const to = await p3.evaluate(() => window.__studio.project(-8, 0, 0));
     const cdp = await ctx3.newCDPSession(p3);
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from.x, y: from.y }] });

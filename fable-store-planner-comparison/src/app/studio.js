@@ -701,7 +701,7 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
       center: new THREE.Vector3(c.x, 2, c.z),
       radius,
       height: Math.max(ws.room.wallHeight * 1.4, 16),
-      duration: reducedMotion ? 4 : 14,
+      duration: (reducedMotion || rig.reducedMotion) ? 4 : 14,
       onComplete: () => {
         reviewActive = false;
         commit('Review', (w) => { w.game.reviewed = true; }, { track: false });
