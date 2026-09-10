@@ -53,10 +53,13 @@ export function createHud(studio, { toasts }) {
     renderProgress(info);
     count.textContent = `${info.fixtureCount} fixture${info.fixtureCount === 1 ? '' : 's'}`;
     score.textContent = `${info.percent}% complete`;
-    const overlaps = info.collisionCount;
-    collision.hidden = overlaps === 0;
-    collision.classList.toggle('is-warning', overlaps > 0);
-    collision.textContent = overlaps > 0 ? `${overlaps} overlap${overlaps === 1 ? '' : 's'}` : 'No overlaps';
+    const blocking = info.collisionCount;
+    const outsideOnly = info.overlapCount === 0 && info.outsideCount > 0;
+    collision.hidden = false; // the HUD always reports collision status, calm or otherwise
+    collision.classList.toggle('is-warning', blocking > 0);
+    if (blocking === 0) collision.textContent = 'No overlaps';
+    else if (outsideOnly) collision.textContent = `${blocking} outside the room`;
+    else collision.textContent = `${info.overlapCount} overlap${info.overlapCount === 1 ? '' : 's'}${info.outsideCount ? ` · ${info.outsideCount} outside` : ''}`;
     review.hidden = !info.coreComplete;
     review.disabled = !info.coreComplete;
     renderBrief(info);

@@ -69,6 +69,7 @@ export const STEPS = {
 };
 
 const OVERLAP_OBJECTIVE = 'Clear the overlap';
+const OUTSIDE_OBJECTIVE = 'Move it back inside the room';
 const COMPLETE_OBJECTIVE = 'Layout complete';
 const CORE_STEPS = 4;
 
@@ -80,14 +81,23 @@ export function evaluateGame(ws, collisionReport) {
   const doneCount = steps.filter((step) => step.done).length;
   const currentStep = steps.find((step) => !step.done) || null;
   const collisionCount = collisionReport && Number.isFinite(collisionReport.count) ? collisionReport.count : 0;
+  // Overlaps and out-of-bounds objects are both blocking, but they are not the same problem.
+  const overlapCount = collisionReport && Array.isArray(collisionReport.pairs) ? collisionReport.pairs.length : 0;
+  const outsideCount = collisionReport && collisionReport.outOfBounds ? collisionReport.outOfBounds.size : 0;
+  const outsideOnly = overlapCount === 0 && outsideCount > 0;
+  const blockedText = outsideOnly ? OUTSIDE_OBJECTIVE : OVERLAP_OBJECTIVE;
   const complete = doneCount === steps.length;
   return {
     steps,
     currentStep,
-    objectiveText: collisionCount > 0 ? OVERLAP_OBJECTIVE : currentStep ? currentStep.objective : COMPLETE_OBJECTIVE,
+    objectiveText: collisionCount > 0 ? blockedText : currentStep ? currentStep.objective : COMPLETE_OBJECTIVE,
     percent: Math.round((doneCount / steps.length) * 100),
-    fixtureCount: fixtures.length,
+    // what the user has placed (the HUD's count); progress uses the narrower `fixtures` set above
+    fixtureCount: ws.entities.filter((e) => !isArchitecture(e.type)).length,
+    equipmentCount: fixtures.length,
     collisionCount,
+    overlapCount,
+    outsideCount,
     coreComplete: steps.slice(0, CORE_STEPS).every((step) => step.done),
     complete,
   };

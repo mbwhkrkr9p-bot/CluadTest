@@ -772,18 +772,42 @@ export function createStudio({ canvas, labelsEl, workspace, storage = globalThis
     const newFrames = G.wallFrames(polygon);
     const sameLine = (nf, of) => Math.abs(nf.dir.x * of.dir.x + nf.dir.z * of.dir.z) > 0.999 &&
       Math.abs((nf.start.x - of.start.x) * of.normal.x + (nf.start.z - of.start.z) * of.normal.z) < 1e-4;
-    const findNew = (of, u) => {
+    const sameFacing = (nf, of) => nf.normal.x * of.normal.x + nf.normal.z * of.normal.z > 0.999;
+    // 1) the new edge that physically carries the old world point (an outline edited in place)
+    const exactMatch = (of, u) => {
       const world = G.wallLocalToWorld(of, u, 0);
       let best = null;
       for (let i = 0; i < newFrames.length; i++) {
         const nf = newFrames[i];
-        if (!sameLine(nf, of) || nf.normal.x * of.normal.x + nf.normal.z * of.normal.z < 0.999) continue;
+        if (!sameLine(nf, of) || !sameFacing(nf, of)) continue;
         const local = G.worldToWallLocal(nf, world);
         const inside = local.u >= -1e-6 && local.u <= nf.length + 1e-6;
         const dist = inside ? 0 : Math.min(Math.abs(local.u), Math.abs(local.u - nf.length));
         if (!best || dist < best.dist) best = { index: i, u: G.clamp(local.u, 0, nf.length), dist };
       }
       return best && best.dist < 1e-6 ? best : null;
+    };
+    // 2) the edge that plays the same role when the whole wall plane moved (a resized room):
+    //    same index if the outline kept its vertex count, else the nearest edge facing the same way
+    const correspondingIndex = (of) => {
+      if (newFrames.length === oldFrames.length && sameFacing(newFrames[of.index], of)) return of.index;
+      let best = null;
+      for (const nf of newFrames) {
+        if (!sameFacing(nf, of)) continue;
+        const d = Math.abs(nf.index - of.index);
+        if (!best || d < best.d) best = { index: nf.index, d };
+      }
+      return best ? best.index : -1;
+    };
+    /** Where a wall attachment at `u` belongs on the new outline, or null when its wall truly vanished. */
+    const findNew = (of, u) => {
+      const exact = exactMatch(of, u);
+      if (exact) return exact;
+      const index = correspondingIndex(of);
+      if (index < 0) return null;
+      const nf = newFrames[index];
+      const ratio = of.length > 1e-6 ? nf.length / of.length : 1;
+      return { index, u: G.clamp(u * ratio, 0, nf.length), dist: 0 };
     };
     const kept = [];
     for (const e of w.entities) {

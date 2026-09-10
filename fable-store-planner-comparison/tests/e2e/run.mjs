@@ -329,7 +329,9 @@ async function main() {
     await S(([id, x, z]) => window.__studio.studio.moveEntity(id, { x, z }), [id2, table.position.x + 12, table.position.z]);
     const c2 = await S(() => window.__studio.collisions().count);
     assert(c2 === 0, 'cleared');
-    assert(!(await page.locator('#hud-collision').isVisible()), 'badge hidden');
+    assert(await page.locator('#hud-collision').isVisible(), 'status stays visible');
+    assert((await page.locator('#hud-collision').innerText()).trim() === 'No overlaps', 'and reads clear');
+    assert(!(await page.locator('#hud-collision').evaluate((el) => el.classList.contains('is-warning'))), 'without the warning state');
   });
 
   await step('Wall fixtures clamp to their wall, avoid door openings and warn on overlap', async () => {
@@ -943,6 +945,53 @@ async function main() {
     await settle();
   });
 
+  await step('Regression: resizing the room keeps wall fixtures and windows on their walls', async () => {
+    await S(() => window.__studio.select({ kind: 'none' }));
+    await settle();
+    // one attachment on each of the four walls, plus a window, then move every wall plane at once
+    const before = await S(() => {
+      const s = window.__studio;
+      for (const e of s.getState().entities.filter((x) => x.anchor === 'wall' && x.type !== 'door')) s.studio.removeEntity(e.id);
+      return {
+        back: s.placeOnWall('slatwall-panel', 'w0', 8),
+        right: s.placeOnWall('gridwall-panel', 'w1', 8),
+        left: s.placeOnWall('pegboard-panel', 'w3', 8),
+        win: s.studio.addWindow('picture', 'w0', 30),
+      };
+    });
+    for (const [k, v] of Object.entries(before)) assert(v && v.id, `${k} placed`);
+    await page.locator('#btn-floorplan').click();
+    await page.waitForTimeout(200);
+    await page.fill('#fp-width', '52');
+    await page.fill('#fp-depth', '34');
+    await page.locator('#fp-apply').click();
+    await page.waitForTimeout(500);
+    const ws = await state();
+    const bounds = { w: 52, d: 34 };
+    const xs = ws.room.polygon.map((p) => p.x), zs = ws.room.polygon.map((p) => p.z);
+    assert(near(Math.max(...xs) - Math.min(...xs), bounds.w) && near(Math.max(...zs) - Math.min(...zs), bounds.d), 'room resized');
+    for (const [k, v] of Object.entries(before)) {
+      const now = ws.entities.find((e) => e.id === v.id);
+      assert(now, `${k} survived the resize`);
+      const frame = await S((id) => { const w = window.__studio.studio.getWall(window.__studio.studio.getEntity(id).parent); return w ? w.length : null; }, v.id);
+      assert(frame !== null, `${k} still hangs on a real wall`);
+      assert(now.position.u - now.width / 2 >= -1e-6 && now.position.u + now.width / 2 <= frame + 1e-6, `${k} sits within its wall (u=${now.position.u}, wall=${frame})`);
+    }
+    assert((await S(() => window.__studio.game().fixtureCount)) >= 3, 'the HUD still counts them');
+    // shrinking back keeps them too
+    await page.locator('#btn-floorplan').click();
+    await page.waitForTimeout(200);
+    await page.fill('#fp-width', '40');
+    await page.fill('#fp-depth', '28');
+    await page.locator('#fp-apply').click();
+    await page.waitForTimeout(500);
+    const shrunk = await state();
+    for (const [k, v] of Object.entries(before)) assert(shrunk.entities.find((e) => e.id === v.id), `${k} survived the shrink`);
+    await S(() => { const s = window.__studio; for (const e of s.getState().entities.filter((x) => x.anchor === 'wall' && x.type !== 'door')) s.studio.removeEntity(e.id); });
+    await page.keyboard.press('r');
+    await settle();
+  });
+
   // ---------------------------------------------------------------- floor plan (L-shape)
   await step('Floor plan editor: L-shaped room rebuilds walls and keeps wall fixtures', async () => {
     const frontPanelId = (await S(() => window.__studio.placeOnWall('slatwall-panel', 'w2', 30))).id; // world x = -10 on the front wall
@@ -1068,10 +1117,12 @@ async function main() {
     info = await S(() => window.__studio.game());
     assert(info.steps.find((s) => s.id === 'flow').done && info.coreComplete, 'flow + core complete');
     // forklift: collides via its zone but does not count as equipment
+    const equip0 = info.equipmentCount;
     const count0 = info.fixtureCount;
     const fork = await S(() => window.__studio.place('forklift', 0, 10));
     info = await S(() => window.__studio.game());
-    assert(info.fixtureCount === count0, 'forklift not counted');
+    assert(info.equipmentCount === equip0, 'forklift adds no equipment progress');
+    assert(info.fixtureCount === count0 + 1, 'but the HUD counts it as placed');
     assert(near(fork.width, 6) && near(fork.depth, 13), 'zone footprint');
     await S(([id]) => window.__studio.studio.moveEntity(id, { x: 20, z: 10 }), [fork.id]);
     assert((await S(() => window.__studio.collisions().count)) > 0, 'forklift zone collides with the packing station');

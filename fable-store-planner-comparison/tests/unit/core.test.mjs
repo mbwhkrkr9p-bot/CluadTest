@@ -825,6 +825,9 @@ test('store game steps evaluate in order, with the overlap override', () => {
   const blocked = evaluateGame(ws, overlap);
   assert.equal(blocked.objectiveText, 'Clear the overlap');
   assert.equal(blocked.collisionCount, 2);
+  const outside = { ...none, count: 1, outOfBounds: new Set([table.id]) };
+  assert.equal(evaluateGame(ws, outside).objectiveText, 'Move it back inside the room', 'out of bounds is not an overlap');
+  assert.deepEqual([evaluateGame(ws, outside).overlapCount, evaluateGame(ws, outside).outsideCount], [0, 1]);
   assert.equal(blocked.currentStep.id, 'review', 'the override does not change the step');
 
   ws.game.reviewed = true;
@@ -851,13 +854,15 @@ test('warehouse game steps exclude the forklift and count markers', () => {
   addEntity(ws, fixture('forklift', { position: { x: 0, z: 0 } }));
   let ev = evaluateGame(ws, none);
   assert.deepEqual(done(ev), [], 'the forklift is not equipment');
-  assert.equal(ev.fixtureCount, 0);
+  assert.equal(ev.fixtureCount, 1, 'it is still a placed fixture the HUD counts');
+  assert.equal(ev.equipmentCount, 0, 'but it never counts toward equipment progress');
   assert.equal(ev.objectiveText, STEPS.warehouse[0].objective);
 
   addEntity(ws, fixture('pallet-rack', { position: { x: 20, z: 0 } }));
   ev = evaluateGame(ws, none);
   assert.deepEqual(done(ev), ['first']);
-  assert.equal(ev.fixtureCount, 1);
+  assert.equal(ev.fixtureCount, 2, 'forklift + rack are both placed');
+  assert.equal(ev.equipmentCount, 1);
   assert.equal(ev.currentStep.id, 'adjust');
 
   ws.game.arranged = true;
@@ -865,7 +870,8 @@ test('warehouse game steps exclude the forklift and count markers', () => {
   ev = evaluateGame(ws, none);
   assert.deepEqual(done(ev), ['first', 'adjust', 'locate']);
   assert.equal(ev.currentStep.id, 'flow');
-  assert.equal(ev.fixtureCount, 2, 'markers count as equipment');
+  assert.equal(ev.fixtureCount, 3);
+  assert.equal(ev.equipmentCount, 2, 'markers count as equipment');
   assert.equal(ev.percent, 60);
 
   addEntity(ws, fixture('pallet-rack', { position: { x: 20, z: 10 } }));
