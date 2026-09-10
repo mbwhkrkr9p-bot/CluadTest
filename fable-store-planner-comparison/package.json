@@ -1,0 +1,15 @@
+{
+  "name": "fable-store-planner-comparison",
+  "version": "1.0.0",
+  "description": "3D Store Studio - a local, offline, browser-based 3D retail store and warehouse planner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node --test \"tests/unit/*.test.mjs\"",
+    "test:e2e": "node tests/e2e/run.mjs",
+    "check": "npm test && npm run test:e2e"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8"><canvas id="c"></canvas><script type="module">
+  import * as THREE from '../../vendor/three/three.module.js';
+  const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c') });
+  const s = new THREE.Scene(); const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 100); cam.position.z = 5;
+  s.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+  r.render(s, cam);
+  console.log('webgl ok', THREE.REVISION, r.capabilities.isWebGL2);
+</script>
